@@ -7,6 +7,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from app.models.ai import AIExplanation
 from app.models.detection import ComponentKind
 from app.models.diagnosis import ActionType, Diagnosis, RemediationPlan, RootCause
 
@@ -132,7 +133,7 @@ class Incident(BaseModel):
     recovery: RecoveryReport | None = None
     timeline: list[IncidentEvent] = Field(default_factory=list)
     metrics: IncidentMetrics = Field(default_factory=IncidentMetrics)
-    ai_explanation: dict | None = Field(default=None, description="Filled by the AI explanation provider")
+    ai_explanation: AIExplanation | None = Field(default=None, description="Filled by the AI explanation provider")
     auto_heal: bool = True
 
     @property

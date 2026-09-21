@@ -14,6 +14,8 @@ from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from typing import Any
 
+from app.ai.factory import create_provider
+from app.ai.provider import build_context, explain_with_fallback
 from app.config import get_settings
 from app.detection.detector import AnomalyDetector
 from app.diagnosis.rca import RootCauseAnalyzer
@@ -51,6 +53,9 @@ class SimulationEngine:
         self.history: deque[TelemetrySnapshot] = deque(maxlen=HISTORY_LENGTH)
         self.healing = HealingEngine(self.network, self.telemetry, self.faults)
         self.incidents = IncidentManager(self.healing, self.history, auto_heal=True)
+        self.ai_provider = create_provider()
+        self.incidents.on_diagnosed = self._on_diagnosed
+        self._ai_tasks: set[asyncio.Task[None]] = set()
         self.latest: TelemetrySnapshot | None = None
         self.tick_count = 0
         self._listeners: list[StateListener] = []
@@ -138,6 +143,33 @@ class SimulationEngine:
             self.tick()  # reflect the fault immediately instead of waiting for the next tick
         await self.publish()
         return fault
+
+    # ------------------------------------------------------------------ ai
+    def _on_diagnosed(self, incident: Incident) -> None:
+        """Kick off the AI explanation without blocking the tick loop."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No event loop (tests / scripts): run the provider synchronously.
+            asyncio.run(self._explain_and_store(incident))
+            return
+        task = loop.create_task(self._explain_and_store(incident, publish=True))
+        self._ai_tasks.add(task)
+        task.add_done_callback(self._ai_tasks.discard)
+
+    async def _explain_and_store(self, incident: Incident, publish: bool = False) -> None:
+        explanation = await explain_with_fallback(self.ai_provider, build_context(incident))
+        incident.ai_explanation = explanation
+        log.info("[AI] Explanation ready for %s via %s%s", incident.id, explanation.provider, " (fallback)" if explanation.fallback else "")
+        if self.incidents.on_change:
+            self.incidents.on_change(incident)
+        if publish:
+            await self.publish()
+
+    async def explain_incident(self, incident: Incident):
+        await self._explain_and_store(incident)
+        await self.publish()
+        return incident.ai_explanation
 
     # ------------------------------------------------------------ healing
     async def execute_healing(self, incident_id: str) -> Incident:
