@@ -16,8 +16,10 @@ from typing import Any
 
 from app.config import get_settings
 from app.detection.detector import AnomalyDetector
+from app.diagnosis.rca import RootCauseAnalyzer
 from app.logging_config import get_logger
 from app.models.detection import DetectionResult
+from app.models.diagnosis import Diagnosis
 from app.models.faults import InjectFaultRequest
 from app.models.telemetry import MetricPoint, TelemetrySnapshot
 from app.simulation.effects import SimulationEffects
@@ -40,6 +42,8 @@ class SimulationEngine:
         self.faults = FaultInjector(self.network)
         self.detector = AnomalyDetector(self.network)
         self.detection: DetectionResult | None = None
+        self.rca = RootCauseAnalyzer(self.network)
+        self.diagnosis: Diagnosis | None = None
         self.effects = SimulationEffects()
         self.history: deque[TelemetrySnapshot] = deque(maxlen=HISTORY_LENGTH)
         self.latest: TelemetrySnapshot | None = None
@@ -87,6 +91,7 @@ class SimulationEngine:
         self.history.append(snapshot)
         self.latest = snapshot
         self.detection = self.detector.detect(snapshot)
+        self.diagnosis = self.rca.diagnose(self.detection, snapshot) if self.detection.anomalies else None
         return snapshot
 
     def reset(self) -> int:
@@ -96,6 +101,7 @@ class SimulationEngine:
         self.telemetry.reset_noise()
         self.detector.reset()
         self.detection = None
+        self.diagnosis = None
         self.history.clear()
         self.tick_count = 0
         self.latest = None
@@ -141,6 +147,7 @@ class SimulationEngine:
             "telemetry": self.latest.model_dump(mode="json") if self.latest else None,
             "faults": [f.to_schema().model_dump(mode="json") for f in self.faults.active],
             "detection": self.detection.model_dump(mode="json") if self.detection else None,
+            "diagnosis": self.diagnosis.model_dump(mode="json") if self.diagnosis else None,
         }
 
     async def publish(self) -> None:
