@@ -1,12 +1,15 @@
-# Ports are configurable so the stack can coexist with other projects:
-#   BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose up --build
+# Ports and URLs are configurable through a project-root `.env` (Compose reads it automatically;
+# see .env.example) or shell variables. Nothing is baked into the images, so changing
+# BACKEND_PORT / FRONTEND_PORT never requires a rebuild.
 services:
   backend:
     build: ./backend
     container_name: netmedic-backend
     environment:
-      NETMEDIC_CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
-      NETMEDIC_TICK_SECONDS: "1.5"
+      NETMEDIC_CORS_ORIGINS: ${NETMEDIC_CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000},http://127.0.0.1:${FRONTEND_PORT:-3000}}
+      # Any host on the dashboard port (LAN address, port-forward) is also allowed.
+      NETMEDIC_CORS_ORIGIN_REGEX: ${NETMEDIC_CORS_ORIGIN_REGEX:-^https?://[^/]+:${FRONTEND_PORT:-3000}}
+      NETMEDIC_TICK_SECONDS: ${NETMEDIC_TICK_SECONDS:-1.5}
       NETMEDIC_AI_PROVIDER: ${NETMEDIC_AI_PROVIDER:-mock}
       QUALCOMM_AI_BASE_URL: ${QUALCOMM_AI_BASE_URL:-}
       QUALCOMM_AI_API_KEY: ${QUALCOMM_AI_API_KEY:-}
@@ -19,17 +22,18 @@ services:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 40s   # first boot trains the Isolation Forest
+      retries: 6
+      start_period: 40s   # first boot trains the Isolation Forest (10-20 s)
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        # The browser talks to the backend directly, so these are host-visible URLs (baked at build time).
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}
-        NEXT_PUBLIC_WS_URL: ws://localhost:${BACKEND_PORT:-8000}/ws/network
+    build: ./frontend
     container_name: netmedic-frontend
+    environment:
+      # Read at runtime by /api/config. The browser derives the backend address from its own
+      # location plus this port; set the *_URL values only when the API lives on another host.
+      NETMEDIC_BACKEND_PORT: ${BACKEND_PORT:-8000}
+      NETMEDIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+      NETMEDIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
     depends_on:
       backend:
         condition: service_healthy

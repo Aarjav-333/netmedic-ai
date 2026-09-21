@@ -1,14 +1,13 @@
 # ---- build stage ----
 FROM node:20-alpine AS build
 WORKDIR /app
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
-ARG NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws/network
-ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
-    NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL \
-    NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1
+# Dependencies first so this layer is reused across source-only changes.
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# No backend URLs are baked in: the browser resolves them at runtime via /api/config
+# (NETMEDIC_BACKEND_PORT / NETMEDIC_API_BASE_URL / NETMEDIC_WS_URL on the *running* container).
 RUN npm run build
 
 # ---- runtime stage ----

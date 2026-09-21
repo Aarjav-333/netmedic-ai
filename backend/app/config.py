@@ -35,8 +35,10 @@ class Settings(BaseSettings):
     # Persistence
     database_url: str = "sqlite:///./data/netmedic.db"
 
-    # CORS
-    cors_origins: str = "http://localhost:3000"
+    # CORS: exact origins (comma-separated) plus an optional regex (full-matched), e.g. ^https?://[^/]+:3000
+    # so the dashboard works from localhost, 127.0.0.1 or a LAN address on the same port.
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    cors_origin_regex: str | None = None
 
     # AI explanation provider
     ai_provider: Literal["mock", "qualcomm"] = "mock"

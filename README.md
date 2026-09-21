@@ -115,7 +115,7 @@ dashboard so the number is always explainable.
 
 - Features per node: latency / healthy RTT, packet loss, throughput / capacity, utilisation, CPU, memory, connections / expected.
 - Training data: fault-free simulator runs (6 seeds × 400 ticks, per-flow demand jitter ± 35 %, diurnal swing ± 15 %).
-- `IsolationForest(n_estimators=200, contamination=0.005)`; model persisted with joblib and trained automatically on first boot (~20 s).
+- `IsolationForest(n_estimators=200, contamination=0.005)`; model persisted with joblib and trained automatically on first boot (10–20 s depending on the machine).
 - Severity 0–100 is derived linearly from the decision function between the training threshold and a worst-case vector — it is **not a probability** and is labelled as such.
 
 ### Root cause & confidence
@@ -168,10 +168,11 @@ Copy `.env.example` to `.env` and adjust if needed. Defaults work out of the box
 |---|---|
 | `NETMEDIC_TICK_SECONDS` | telemetry/pipeline tick (default 1.5) |
 | `NETMEDIC_DATABASE_URL` | SQLite URL (default `sqlite:///./data/netmedic.db`, relative to `backend/`) |
-| `NETMEDIC_CORS_ORIGINS` | allowed dashboard origins |
+| `BACKEND_PORT` / `FRONTEND_PORT` | host ports used by `docker compose` (default 8000 / 3000) |
+| `NETMEDIC_CORS_ORIGINS` / `NETMEDIC_CORS_ORIGIN_REGEX` | allowed dashboard origins (defaults cover localhost, 127.0.0.1 and any host on the dashboard port) |
 | `NETMEDIC_AI_PROVIDER` | `mock` (default) or `qualcomm` |
 | `QUALCOMM_AI_BASE_URL` / `QUALCOMM_AI_API_KEY` / `QUALCOMM_AI_MODEL` | Qualcomm Cloud AI Playground details supplied by you (see `backend/app/ai/qualcomm.py` for the documented request-shape assumption) |
-| `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_WS_URL` | where the browser reaches the backend |
+| `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_WS_URL` | optional overrides; by default the browser derives the backend address from its own location and the backend port at runtime |
 
 ### Backend
 
@@ -184,7 +185,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-First start trains the Isolation Forest (≈20 s) and writes `backend/data/models/`. Retrain any time with
+First start trains the Isolation Forest (10–20 s depending on the machine) and writes `backend/data/models/`. Retrain any time with
 `python ../scripts/train_detector.py`. Interactive API docs: http://localhost:8000/docs.
 
 ### Frontend
@@ -195,7 +196,8 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. The dashboard derives the backend address from its own location and port 8000; if the backend runs elsewhere, set `NETMEDIC_BACKEND_PORT=8010` (or `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_WS_URL`) in `frontend/.env.local`. Use Node 20 / npm 10 (`.nvmrc`, `packageManager` — run `corepack enable` once and npm picks the pinned version) so `package-lock.json` stays identical to what the Docker image installs; if you must use another npm and Docker's `npm ci` later complains about the lockfile, regenerate it in Linux:
+`docker run --rm -v "${PWD}:/app" -w /app node:20-alpine npm install --package-lock-only`.
 
 ### Tests
 
@@ -207,11 +209,19 @@ pytest            # 90+ tests: routing, telemetry, faults, detection, RCA, heali
 ### Docker
 
 ```bash
-docker compose up --build                                   # backend on :8000, dashboard on :3000
-BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose up --build   # if those ports are taken
+docker compose up --build        # backend on :8000, dashboard on :3000
 ```
 
-The backend trains the detector on first boot (~10 s in the container); the SQLite database and model live in the `netmedic-data` volume. The dashboard URLs are baked into the frontend image at build time, so pass the port variables to `build` as well when changing them.
+If those ports are taken, set `BACKEND_PORT` / `FRONTEND_PORT` in a project-root `.env` (Compose reads it on every platform; copy `.env.example`), or in the shell:
+
+```powershell
+$env:BACKEND_PORT = "8010"; $env:FRONTEND_PORT = "3010"; docker compose up --build   # PowerShell
+```
+```bash
+BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose up --build                     # bash / zsh
+```
+
+Nothing host-specific is baked into the images: the frontend container tells the browser the backend port at runtime (`/api/config`), so changing ports never needs a rebuild and the dashboard works from `localhost`, `127.0.0.1` or a LAN address alike. The backend trains the detector on first boot (10–20 s, covered by the healthcheck's `start_period`); the SQLite database and model live in the `netmedic-data` volume.
 
 ## Demo Workflow
 

@@ -1,6 +1,6 @@
 /** Thin typed fetch helpers for the NetMedic REST API. */
 
-import { API_BASE_URL } from "@/lib/config";
+import { getBackendConfig } from "@/lib/config";
 import type { ActiveFault, DemoState, FaultDefinition, Incident, InjectFaultRequest } from "@/lib/types";
 
 export class ApiError extends Error {
@@ -14,7 +14,8 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const { apiBaseUrl } = await getBackendConfig();
+  const res = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     cache: "no-store",

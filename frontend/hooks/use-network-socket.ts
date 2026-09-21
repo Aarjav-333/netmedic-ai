@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { API_BASE_URL, WS_URL } from "@/lib/config";
+import { getBackendConfig } from "@/lib/config";
 import type { MetricPoint, StateMessage, TelemetrySnapshot } from "@/lib/types";
 
 export type ConnectionStatus = "connecting" | "connected" | "reconnecting" | "offline";
@@ -49,7 +49,8 @@ export function useNetworkSocket() {
 
   const backfill = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/telemetry/history?limit=${HISTORY_LENGTH}`, {
+      const { apiBaseUrl } = await getBackendConfig();
+      const res = await fetch(`${apiBaseUrl}/api/telemetry/history?limit=${HISTORY_LENGTH}`, {
         cache: "no-store",
       });
       if (!res.ok) return;
@@ -69,10 +70,12 @@ export function useNetworkSocket() {
     closedRef.current = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const connect = () => {
+    const connect = async () => {
       if (closedRef.current) return;
       setStatus(attemptRef.current === 0 ? "connecting" : "reconnecting");
-      const ws = new WebSocket(WS_URL);
+      const { wsUrl } = await getBackendConfig();
+      if (closedRef.current) return;
+      const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
 
       ws.onopen = () => {
@@ -105,7 +108,7 @@ export function useNetworkSocket() {
         attemptRef.current += 1;
         setStatus("offline");
         const delay = Math.min(MAX_BACKOFF_MS, 500 * 2 ** Math.min(attemptRef.current, 4));
-        retryTimer = setTimeout(connect, delay);
+        retryTimer = setTimeout(() => void connect(), delay);
       };
 
       ws.onerror = () => {
@@ -113,7 +116,7 @@ export function useNetworkSocket() {
       };
     };
 
-    connect();
+    void connect();
 
     return () => {
       closedRef.current = true;
