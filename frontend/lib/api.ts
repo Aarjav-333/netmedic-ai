@@ -1,7 +1,7 @@
 /** Thin typed fetch helpers for the NetMedic REST API. */
 
 import { API_BASE_URL } from "@/lib/config";
-import type { ActiveFault, FaultDefinition, InjectFaultRequest } from "@/lib/types";
+import type { ActiveFault, FaultDefinition, Incident, InjectFaultRequest } from "@/lib/types";
 
 export class ApiError extends Error {
   constructor(
@@ -59,3 +59,9 @@ export const injectFault = (body: InjectFaultRequest) => api.post<ActiveFault>("
 export const clearFault = (id: string) => api.delete<ActiveFault>(`/api/faults/${id}`);
 export const resetSimulation = () =>
   api.post<{ cleared_faults: number; message: string }>("/api/faults/reset");
+
+// ---- Incidents / healing ----
+export const getIncident = (id: string) => api.get<Incident>(`/api/incidents/${id}`);
+export const executeHealing = (id: string) => api.post<Incident>(`/api/healing/${id}/execute`);
+export const setAutoHeal = (auto_heal: boolean) =>
+  api.post<{ auto_heal: boolean }>("/api/healing/mode", { auto_heal });

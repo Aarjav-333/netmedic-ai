@@ -153,6 +153,12 @@ export interface StateMessage {
   topology: Topology;
   telemetry: TelemetrySnapshot | null;
   faults: ActiveFault[];
+  detection: DetectionResult | null;
+  diagnosis: Diagnosis | null;
+  incident: Incident | null;
+  incidents: IncidentSummary[];
+  quarantined: string[];
+  auto_heal: boolean;
 }
 
 // ---- Faults ----
@@ -193,4 +199,235 @@ export interface InjectFaultRequest {
   target_id: string;
   severity?: Severity;
   duration_seconds?: number;
+}
+
+// ---- Detection ----
+export type ComponentKind = "node" | "link" | "flow";
+
+export interface MetricDeviation {
+  metric: string;
+  unit: string;
+  baseline: number;
+  current: number;
+  ratio: number;
+  direction: "up" | "down";
+}
+
+export interface ComponentAnomaly {
+  component_id: string;
+  component_kind: ComponentKind;
+  method: string;
+  decision_score: number | null;
+  severity: number;
+  is_anomaly: boolean;
+  confirmed: boolean;
+  consecutive_ticks: number;
+  deviations: MetricDeviation[];
+  reasons: string[];
+}
+
+export interface DetectionResult {
+  tick: number;
+  timestamp: string;
+  anomalies: ComponentAnomaly[];
+  node_scores: Record<string, number>;
+  confirmed_ids: string[];
+}
+
+// ---- Diagnosis ----
+export type RootCause =
+  | "router_congestion"
+  | "node_overload"
+  | "traffic_spike"
+  | "node_failure"
+  | "link_failure"
+  | "packet_loss_spike"
+  | "bandwidth_saturation"
+  | "unknown";
+
+export type ActionType =
+  | "reroute_around_node"
+  | "reroute_around_link"
+  | "isolate_link"
+  | "restart_node"
+  | "rate_limit_source"
+  | "redistribute_load"
+  | "escalate"
+  | "monitor";
+
+export type RiskLevel = "low" | "medium" | "high";
+
+export interface RuleCheck {
+  condition: string;
+  weight: number;
+  strength: number;
+  observation: string;
+}
+
+export interface Hypothesis {
+  root_cause: RootCause;
+  target_id: string;
+  target_kind: ComponentKind;
+  score: number;
+  checks: RuleCheck[];
+}
+
+export interface RemediationPlan {
+  action: ActionType;
+  target_id: string;
+  target_kind: ComponentKind;
+  summary: string;
+  rationale: string;
+  risk: RiskLevel;
+  expected_outcome: string;
+  parameters: Record<string, number | string>;
+}
+
+export interface Diagnosis {
+  tick: number;
+  timestamp: string;
+  root_cause: RootCause;
+  root_cause_label: string;
+  target_id: string;
+  target_kind: ComponentKind;
+  confidence: number;
+  confidence_explanation: string;
+  evidence: string[];
+  affected_flows: string[];
+  affected_components: string[];
+  hypotheses: Hypothesis[];
+  anomaly_severity: number;
+  plan: RemediationPlan;
+}
+
+// ---- AI ----
+export interface AIExplanation {
+  provider: string;
+  model: string | null;
+  diagnosis: string;
+  explanation: string;
+  evidence_summary: string[];
+  remediation_justification: string;
+  operational_risk: string;
+  recovery_expectation: string;
+  generated_at: string;
+  latency_ms: number;
+  fallback: boolean;
+  error: string | null;
+}
+
+// ---- Incidents ----
+export type IncidentStatus =
+  | "detected"
+  | "analyzing"
+  | "diagnosed"
+  | "remediating"
+  | "verifying"
+  | "resolved"
+  | "partially_resolved"
+  | "failed"
+  | "cancelled";
+
+export interface IncidentEvent {
+  timestamp: string;
+  tick: number;
+  stage: IncidentStatus;
+  message: string;
+}
+
+export interface RouteChange {
+  flow_id: string;
+  before: string[];
+  after: string[];
+}
+
+export interface HealingActionRecord {
+  id: string;
+  incident_id: string;
+  action: ActionType;
+  target_id: string;
+  target_kind: ComponentKind;
+  parameters: Record<string, number | string>;
+  started_at: string;
+  completed_at: string | null;
+  result: "applied" | "skipped" | "failed" | "restored";
+  details: string;
+  route_changes: RouteChange[];
+}
+
+export interface MetricWindow {
+  samples: number;
+  health_score: number;
+  avg_latency_ms: number;
+  avg_packet_loss_percent: number;
+  affected_flows_healthy: number;
+  affected_flows_total: number;
+  target_latency_ms: number | null;
+  target_packet_loss_percent: number | null;
+  target_cpu_percent: number | null;
+  target_utilization_percent: number | null;
+}
+
+export interface RecoveryCheck {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface RecoveryReport {
+  status: IncidentStatus;
+  baseline: MetricWindow | null;
+  before: MetricWindow;
+  after: MetricWindow;
+  checks: RecoveryCheck[];
+  verified_at: string;
+  summary: string;
+}
+
+export interface IncidentMetrics {
+  time_to_detect_s: number | null;
+  time_to_diagnose_s: number | null;
+  time_to_remediate_s: number | null;
+  recovery_time_s: number | null;
+  total_duration_s: number | null;
+}
+
+export interface Incident {
+  id: string;
+  status: IncidentStatus;
+  status_label: string;
+  component_id: string;
+  component_kind: ComponentKind;
+  anomaly_severity: number;
+  first_abnormal_at: string;
+  detected_at: string;
+  diagnosed_at: string | null;
+  remediated_at: string | null;
+  verified_at: string | null;
+  resolved_at: string | null;
+  root_cause: RootCause | null;
+  root_cause_label: string | null;
+  confidence: number | null;
+  diagnosis: Diagnosis | null;
+  plan: RemediationPlan | null;
+  actions: HealingActionRecord[];
+  recovery: RecoveryReport | null;
+  timeline: IncidentEvent[];
+  metrics: IncidentMetrics;
+  ai_explanation: AIExplanation | null;
+  auto_heal: boolean;
+}
+
+export interface IncidentSummary {
+  id: string;
+  status: IncidentStatus;
+  status_label: string;
+  component_id: string;
+  root_cause_label: string | null;
+  confidence: number | null;
+  detected_at: string;
+  resolved_at: string | null;
+  action: ActionType | null;
+  recovery_time_s: number | null;
+  total_duration_s: number | null;
 }

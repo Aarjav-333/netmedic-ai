@@ -1,7 +1,12 @@
+"use client";
+
+import { useState } from "react";
 import { Activity, ShieldCheck, Wifi, WifiOff } from "lucide-react";
 import { cn } from "cn";
 import { StatusPill } from "@/components/dashboard/status-pill";
+import { Switch } from "@/components/ui/switch";
 import type { ConnectionStatus } from "@/hooks/use-network-socket";
+import { setAutoHeal } from "@/lib/api";
 import { healthFromScore } from "@/lib/status";
 import type { NetworkSummary } from "@/lib/types";
 
@@ -11,6 +16,13 @@ const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
   reconnecting: "Reconnecting",
   offline: "Backend offline",
 };
+
+const NETWORK_LABEL = {
+  healthy: "Healthy",
+  warning: "Degraded",
+  critical: "Critical",
+  offline: "Unknown",
+} as const;
 
 export function TopBar({
   summary,
@@ -23,8 +35,20 @@ export function TopBar({
   autoHealing: boolean;
   tick: number;
 }) {
+  const [saving, setSaving] = useState(false);
   const networkStatus = summary ? healthFromScore(summary.health_score) : "offline";
   const online = connection === "connected";
+
+  const toggle = async (enabled: boolean) => {
+    setSaving(true);
+    try {
+      await setAutoHeal(enabled);
+    } catch {
+      /* the next state message will show the real value */
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-5 py-3">
@@ -43,19 +67,23 @@ export function TopBar({
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-2 rounded-full border border-border/60 px-3 py-1 text-xs">
           <span className="text-muted-foreground">Network</span>
-          <StatusPill
-            status={networkStatus}
-            label={summary ? `${networkStatus === "healthy" ? "Healthy" : networkStatus === "warning" ? "Degraded" : networkStatus === "critical" ? "Critical" : "Unknown"}` : "Unknown"}
-          />
+          <StatusPill status={networkStatus} label={NETWORK_LABEL[networkStatus]} />
         </div>
-        <div className="flex items-center gap-2 rounded-full border border-border/60 px-3 py-1 text-xs">
+        <label className="flex cursor-pointer items-center gap-2 rounded-full border border-border/60 px-3 py-1 text-xs">
           <ShieldCheck
             className={cn("size-3.5", autoHealing ? "text-status-good" : "text-muted-foreground")}
             aria-hidden
           />
           <span className="text-muted-foreground">Auto-healing</span>
           <span className="font-medium">{autoHealing ? "Armed" : "Manual"}</span>
-        </div>
+          <Switch
+            checked={autoHealing}
+            onCheckedChange={toggle}
+            disabled={!online || saving}
+            aria-label="Toggle automatic healing"
+            className="ml-1"
+          />
+        </label>
         <div className="flex items-center gap-2 rounded-full border border-border/60 px-3 py-1 text-xs">
           {online ? (
             <Wifi className="size-3.5 text-status-good" aria-hidden />
