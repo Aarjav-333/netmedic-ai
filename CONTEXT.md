@@ -19,10 +19,11 @@
 - **RCA:** deterministic hypothesis scoring (`backend/app/diagnosis/rules.py`): weighted soft rules per (component, hypothesis); confidence = best_score × (0.6 + 0.4 × (1 − runner_up/best)); formula spelled out in each diagnosis. Planner simulates reroutes before recommending; escalates when no alternative path exists.
 - **Healing:** `HealingEngine` mutates real simulator state (penalties + route recompute, link isolation, node restart, rate limits). Quarantine with hold-down (restore after 6 clean ticks & ≥10-tick hold; 60-tick hold if flapping).
 - **Verification:** windows of averaged samples (baseline 5 pre-anomaly, before 3, after 3 following a 2-tick settle). Four explicit checks → RESOLVED / PARTIALLY_RESOLVED / FAILED.
-- **Incidents:** `IncidentManager` state machine advances one stage per tick: DETECTED → ANALYZING → DIAGNOSED → REMEDIATING → VERIFYING → RESOLVED/PARTIALLY_RESOLVED/FAILED (+ CANCELLED on reset). One active incident at a time; closed incidents kept in memory (SQLite persistence pending — Phase 10).
-- **AI provider:** not yet implemented (Phase 9). Hook points exist: `IncidentManager.on_diagnosed`, `Incident.ai_explanation`.
-- **Database:** not yet wired (Phase 10). Hook: `IncidentManager.on_change`.
-- **WebSocket:** `/ws/network` pushes the full state message every tick: `{type, tick, topology, telemetry, faults, detection, diagnosis, incident, incidents, quarantined, auto_heal}`.
+- **Incidents:** `IncidentManager` state machine advances one stage per tick: DETECTED → ANALYZING → DIAGNOSED → REMEDIATING → VERIFYING → RESOLVED/PARTIALLY_RESOLVED/FAILED (+ CANCELLED on reset or when a transient anomaly clears before diagnosis). One active incident at a time. Guard: an incident opens only for confirmed node/link anomalies with severity ≥ 20 or ≥ 4 consecutive ticks (prevents false-positive incidents on long healthy runs).
+- **AI provider:** `backend/app/ai/` — `AIExplanationProvider` with `MockProvider` (default, deterministic narrative from the structured diagnosis) and `QualcommProvider` (env-driven; OpenAI-style chat-completions request shape is a documented assumption; falls back to mock on any error, flagged `fallback=true`). Called asynchronously when an incident reaches DIAGNOSED; result in `Incident.ai_explanation`.
+- **Database:** SQLite via SQLAlchemy (`backend/app/database/`): `incidents` (indexed columns + full JSON payload), `healing_actions`, `incident_events`, `telemetry_snapshots` (one summary every 10 ticks, pruned to 2000 rows). Incident history reloaded on boot. Tests use `backend/data/netmedic_test.db`.
+- **Demo mode:** `backend/app/demo.py` `DemoRunner` — reset → 5 s healthy → inject scenario → wait for the real pipeline to close the incident. Scenarios: congestion (R4), link_failure (L-R4-SW3), traffic_spike (SW3), overload (R2).
+- **WebSocket:** `/ws/network` pushes the full state message every tick: `{type, tick, topology, telemetry, faults, detection, diagnosis, incident, incidents, quarantined, auto_heal, demo}`.
 
 ## Current Repository
 
@@ -34,7 +35,7 @@
 
 ## Current Project Status
 
-Phases 0–8 complete on the backend (simulator, telemetry, fault injection, detection, RCA, healing, verification, incidents). Frontend has topology/metrics/fault injector; diagnosis, healing and incident panels pending. ~60% complete.
+All phases 0–12 implemented. The complete Detect → Diagnose → Heal → Verify loop works end to end (backend + dashboard), demo mode works, persistence works, Dockerfiles written. Remaining: Docker image build not yet verified locally (Docker Desktop was not running), optional polish. ~95% complete.
 
 ## Completed
 
@@ -47,18 +48,22 @@ Phases 0–8 complete on the backend (simulator, telemetry, fault injection, det
 - Phase 6: RCA engine + planner + `GET /api/diagnosis/current`
 - Phase 7: healing engine (reroute / isolate / restart / rate-limit) + quarantine/restore
 - Phase 8: recovery verification + incident state machine + `GET /api/incidents*`, `POST /api/healing/{id}/execute`, `GET/POST /api/healing/mode`
+- Phase 9: AI explanation providers + `GET /api/ai/provider`, `POST /api/ai/explain/{id}`
+- Phase 10: SQLite persistence (incidents, actions, events, snapshots) with reload on boot
+- Frontend incident UI: pipeline stepper card, AI diagnosis panel, self-healing panel (routes, verification report, manual approval), timeline, history table, auto-heal toggle, affected-node highlight, demo control
+- Phase 11: demo mode (4 scenarios) + `/api/demo/*`
+- Phase 12: Dockerfiles + docker-compose + standalone Next build, README rewrite with screenshots/formulas/API table, `docs/demo-script.md`, transient-anomaly guard
 
 ## In Progress
 
-- Phase 9: AI explanation provider abstraction (Mock + env-driven Qualcomm)
+- Nothing active. Next session: verify `docker compose up --build` with Docker Desktop running.
 
 ## Next Tasks
 
-1. Phase 9 — `AIExplanationProvider` (`backend/app/ai/`): MockProvider default; QualcommProvider configured only via env; async call at DIAGNOSED; result stored in `Incident.ai_explanation`
-2. Phase 10 — SQLite persistence (SQLAlchemy): incidents, healing actions, events, telemetry snapshots (summarised); load history on boot
-3. Frontend — AI diagnosis panel, healing panel (state badges, route change, recovery report), incident timeline, incident history; highlight affected node in topology
-4. Phase 11 — demo mode (`POST /api/demo/run`): reset → healthy pause → inject R4 congestion → real pipeline
-5. Phase 12 — polish, Docker, README screenshots, CONTEXT final
+1. Verify Docker builds (`docker compose up --build`) once Docker Desktop is running; fix any image issues.
+2. Optional: obtain Qualcomm Cloud AI Playground credentials from the team, set `NETMEDIC_AI_PROVIDER=qualcomm` + `QUALCOMM_AI_*`, confirm the request shape in `backend/app/ai/qualcomm.py` against the real API.
+3. Optional polish: mobile layout pass, keyboard focus states, README screenshot refresh after any UI change.
+4. Optional: rehearse with `docs/demo-script.md`; consider recording a GIF for the README.
 
 ## Important Technical Decisions
 
@@ -70,6 +75,8 @@ Phases 0–8 complete on the backend (simulator, telemetry, fault injection, det
 - **Restart physics.** `FaultInjector.on_node_restart()` clears `node_overload` faults (a restart kills the runaway process). This is simulation physics, not label reading.
 - **Escalation.** When the planner's simulated reroute leaves flows without an alternative (e.g. core router R1, link GW–R1) the plan is ESCALATE and the incident FAILS honestly.
 - **Incident history survives reset**; only the active incident is cancelled.
+- **Transient guard.** After a ~5000-tick healthy run, one 2-tick severity-8 blip on R3 opened an incident that ended FAILED. Incidents now need severity ≥ 20 or 4 consecutive ticks; anomalies that clear before diagnosis close as CANCELLED.
+- **Demo mode never scripts outcomes.** It only resets, waits, and injects; the pipeline decides the result and the fault stays active afterwards so the reroute remains visible.
 - **Bash tool quirk (dev environment):** heredoc commands over ~7 KB fail with "unexpected EOF"; write large files with the Write tool.
 
 ## API Endpoints
@@ -82,12 +89,13 @@ Phases 0–8 complete on the backend (simulator, telemetry, fault injection, det
 - `GET /api/diagnosis/current`
 - `GET /api/incidents`, `GET /api/incidents/active`, `GET /api/incidents/{id}`
 - `POST /api/healing/{incident_id}/execute`, `GET/POST /api/healing/mode`
+- `GET /api/ai/provider`, `POST /api/ai/explain/{incident_id}`
+- `GET /api/demo/scenarios`, `GET /api/demo/status`, `POST /api/demo/run`, `POST /api/demo/stop`
 - `WS /ws/network`
-- Planned: `POST /api/demo/run`
 
 ## Data Models
 
-Pydantic (`backend/app/models/`): `network.py` (NodeSchema, LinkSchema, FlowSchema, RouteSchema, TopologyResponse), `telemetry.py` (NodeTelemetry, LinkTelemetry, FlowTelemetry, NetworkSummary, TelemetrySnapshot, MetricPoint), `faults.py` (FaultType, Severity, ActiveFaultSchema, InjectFaultRequest), `detection.py` (ComponentAnomaly, MetricDeviation, DetectionResult), `diagnosis.py` (RootCause, ActionType, Hypothesis, RuleCheck, RemediationPlan, Diagnosis), `incident.py` (IncidentStatus, Incident, IncidentEvent, HealingActionRecord, RouteChange, MetricWindow, RecoveryCheck, RecoveryReport, IncidentMetrics, IncidentSummary). Frontend mirrors in `frontend/lib/types.ts` (incident/diagnosis types still to add).
+Pydantic (`backend/app/models/`): `network.py` (NodeSchema, LinkSchema, FlowSchema, RouteSchema, TopologyResponse), `telemetry.py` (NodeTelemetry, LinkTelemetry, FlowTelemetry, NetworkSummary, TelemetrySnapshot, MetricPoint), `faults.py` (FaultType, Severity, ActiveFaultSchema, InjectFaultRequest), `detection.py` (ComponentAnomaly, MetricDeviation, DetectionResult), `diagnosis.py` (RootCause, ActionType, Hypothesis, RuleCheck, RemediationPlan, Diagnosis), `incident.py` (IncidentStatus, Incident, IncidentEvent, HealingActionRecord, RouteChange, MetricWindow, RecoveryCheck, RecoveryReport, IncidentMetrics, IncidentSummary), `ai.py` (AIExplanation, AIProviderStatus). ORM tables in `backend/app/database/models.py`. Frontend mirrors in `frontend/lib/types.ts`.
 
 ## Fault Types
 
@@ -107,15 +115,15 @@ See Architecture → Healing. Verified end to end: all seven healable scenarios 
 
 ## AI Integration
 
-Not implemented yet (Phase 9).
+Mock provider active by default. Qualcomm provider is fully env-driven (`QUALCOMM_AI_BASE_URL` = full chat/completions URL, `QUALCOMM_AI_API_KEY`, `QUALCOMM_AI_MODEL`); request/response shape assumption documented in `backend/app/ai/qualcomm.py` and must be checked against the real platform. Credentials have NOT been provided yet.
 
 ## Frontend
 
-Done: `dashboard.tsx`, `top-bar.tsx`, `summary-cards.tsx`, `status-pill.tsx`, `topology/{topology-view,network-node,link-edge}.tsx`, `metrics-panel.tsx`, `fault-injector.tsx`, `hooks/use-network-socket.ts`, `lib/{api,config,status,types}.ts`. Pending: diagnosis panel, healing panel, incident timeline/history, affected-node highlight (`affectedIds` is currently an empty set).
+Components in `frontend/components/dashboard/`: `dashboard.tsx` (layout + incident selection), `top-bar.tsx` (status, auto-heal switch, connection), `summary-cards.tsx`, `status-pill.tsx`, `topology/{topology-view,network-node,link-edge}.tsx`, `incident-status.tsx` (stepper + big stage labels), `diagnosis-panel.tsx`, `healing-panel.tsx`, `incident-timeline.tsx`, `incident-history.tsx`, `metrics-panel.tsx`, `fault-injector.tsx`, `demo-control.tsx`; `hooks/use-network-socket.ts`; `lib/{api,config,status,types}.ts`. With no active incident the panels show the selected/most recent historical incident (fetched via `GET /api/incidents/{id}`).
 
 ## Testing
 
-`cd backend && pytest` — 78 tests: routing, telemetry, health score, faults (+API), detection (+API), RCA (+API), healing/verification/incidents (+API), WebSocket. Full suite ≈10 s (first run trains the model).
+`cd backend && pytest` — 91 tests: routing, telemetry, health score, faults (+API), detection (+API), RCA (+API), healing/verification/incidents (+API), AI providers (mock + mocked-HTTP Qualcomm), database round-trip, demo mode, WebSocket. Full suite ≈12 s (first run trains the model). Frontend: `npm run lint`, `npx tsc --noEmit`, `npm run build` all clean.
 
 ## Environment Variables
 
@@ -139,22 +147,23 @@ cd backend && pytest
 # Retrain detector
 cd backend && python ../scripts/train_detector.py [--save-dataset]
 
-# Docker (pending Phase 12)
+# Docker (Dockerfiles + compose written; build not yet verified locally)
 docker compose up --build
 ```
 
 ## Known Issues
 
-- No persistence yet: incidents live in memory until Phase 10.
-- Frontend does not yet render diagnosis / healing / incident state (backend delivers it in the WS message).
+- Docker images not yet built/verified (Docker Desktop was not running during development).
+- Qualcomm provider untested against the real API (no credentials); request shape is an assumption.
+- Core router R1 and link GW–R1 have no redundancy by design → incidents there escalate and FAIL honestly.
 - `next dev` regenerates `frontend/AGENTS.md`/`CLAUDE.md`; keep them committed.
 
 ## Demo Procedure
 
-Backend + frontend running → dashboard healthy → Fault injector: Target R4, Router congestion, Medium → Inject. Backend log shows [DETECTION] → [DIAGNOSIS] → [HEALING] reroutes F3/F4/F5 via R3 → [VERIFY] RESOLVED (~15 s). Topology shows rerouted (aqua) routes and R4 isolated. Reset restores everything. (UI panels for the incident arrive with the next frontend phase; `GET /api/incidents` shows the record meanwhile.)
+See `docs/demo-script.md`. Short version: backend + frontend running → dashboard healthy → **Run demo** (or Target R4 · Router congestion · Medium · Inject) → pipeline card walks Detect → Diagnose → Heal → Verify; F3/F4/F5 reroute via R3 (aqua), R4 isolated; verification table shows latency ≈215→20 ms, loss ≈15→0.7 %, health 74→99; NETWORK RECOVERED ≈13 s after injection; history row stored in SQLite. **Reset** restores primary routes.
 
 ## Last Major Change
 
 - **Date:** 2026-09-21
-- **Description:** Phases 4–8 complete — fault injection, Isolation Forest detection, RCA, self-healing, verification and incident state machine all working end to end on the backend.
-- **Commit:** 6cb3b21
+- **Description:** All phases implemented — AI provider, SQLite persistence, full incident UI, demo mode, Docker files, README/docs, transient-anomaly guard.
+- **Commit:** 7051b63
