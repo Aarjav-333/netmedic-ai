@@ -6,6 +6,7 @@ import os
 
 # Tests drive the engine explicitly; never let the background loop interfere.
 os.environ.setdefault("NETMEDIC_AUTO_TICK", "false")
+os.environ.setdefault("NETMEDIC_DATABASE_URL", "sqlite:///./data/netmedic_test.db")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

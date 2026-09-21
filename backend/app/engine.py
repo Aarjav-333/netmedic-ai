@@ -17,6 +17,7 @@ from typing import Any
 from app.ai.factory import create_provider
 from app.ai.provider import build_context, explain_with_fallback
 from app.config import get_settings
+from app.database.repository import SNAPSHOT_EVERY_TICKS, Database
 from app.detection.detector import AnomalyDetector
 from app.diagnosis.rca import RootCauseAnalyzer
 from app.healing.engine import HealingEngine
@@ -40,8 +41,9 @@ StateListener = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class SimulationEngine:
-    def __init__(self, tick_seconds: float = 1.5) -> None:
+    def __init__(self, tick_seconds: float = 1.5, database_url: str | None = None) -> None:
         self.tick_seconds = tick_seconds
+        self.db: Database | None = Database(database_url) if database_url else None
         self.network = NetworkSimulator()
         self.telemetry = TelemetryGenerator(self.network)
         self.faults = FaultInjector(self.network)
@@ -55,6 +57,11 @@ class SimulationEngine:
         self.incidents = IncidentManager(self.healing, self.history, auto_heal=True)
         self.ai_provider = create_provider()
         self.incidents.on_diagnosed = self._on_diagnosed
+        if self.db is not None:
+            self.incidents.on_change = self._persist_incident
+            self.incidents.closed = self.db.load_incidents()
+            if self.incidents.closed:
+                log.info("[DB] Loaded %d historical incident(s)", len(self.incidents.closed))
         self._ai_tasks: set[asyncio.Task[None]] = set()
         self.latest: TelemetrySnapshot | None = None
         self.tick_count = 0
@@ -108,6 +115,8 @@ class SimulationEngine:
             self.rca.diagnose(self.detection, snapshot, exclude=quarantined) if self.detection.anomalies else None
         )
         self.incidents.process(self.tick_count, snapshot, self.detection, self.diagnosis)
+        if self.db is not None and self.tick_count % SNAPSHOT_EVERY_TICKS == 0:
+            self._persist_snapshot(snapshot)
         return snapshot
 
     def reset(self) -> int:
@@ -143,6 +152,23 @@ class SimulationEngine:
             self.tick()  # reflect the fault immediately instead of waiting for the next tick
         await self.publish()
         return fault
+
+    # ------------------------------------------------------------ persist
+    def _persist_incident(self, incident: Incident) -> None:
+        try:
+            assert self.db is not None
+            self.db.upsert_incident(incident)
+        except Exception:  # noqa: BLE001 - persistence must never break the pipeline
+            log.exception("[DB] Failed to persist incident %s", incident.id)
+
+    def _persist_snapshot(self, snapshot: TelemetrySnapshot) -> None:
+        try:
+            assert self.db is not None
+            self.db.record_snapshot(snapshot)
+            if self.tick_count % (SNAPSHOT_EVERY_TICKS * 50) == 0:
+                self.db.prune_snapshots()
+        except Exception:  # noqa: BLE001
+            log.exception("[DB] Failed to persist telemetry snapshot")
 
     # ------------------------------------------------------------------ ai
     def _on_diagnosed(self, incident: Incident) -> None:
@@ -247,4 +273,5 @@ class SimulationEngine:
 
 @lru_cache
 def get_engine() -> SimulationEngine:
-    return SimulationEngine(tick_seconds=get_settings().tick_seconds)
+    settings = get_settings()
+    return SimulationEngine(tick_seconds=settings.tick_seconds, database_url=settings.database_url)
