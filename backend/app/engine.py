@@ -16,8 +16,10 @@ from typing import Any
 
 from app.config import get_settings
 from app.logging_config import get_logger
+from app.models.faults import InjectFaultRequest
 from app.models.telemetry import MetricPoint, TelemetrySnapshot
 from app.simulation.effects import SimulationEffects
+from app.simulation.faults import ActiveFault, FaultInjector
 from app.simulation.network import NetworkSimulator
 from app.telemetry.generator import TelemetryGenerator
 
@@ -33,6 +35,7 @@ class SimulationEngine:
         self.tick_seconds = tick_seconds
         self.network = NetworkSimulator()
         self.telemetry = TelemetryGenerator(self.network)
+        self.faults = FaultInjector(self.network)
         self.effects = SimulationEffects()
         self.history: deque[TelemetrySnapshot] = deque(maxlen=HISTORY_LENGTH)
         self.latest: TelemetrySnapshot | None = None
@@ -74,12 +77,15 @@ class SimulationEngine:
     def tick(self) -> TelemetrySnapshot:
         """Run one pipeline iteration synchronously (used by the loop and by tests)."""
         self.tick_count += 1
+        self.faults.expire()
+        self.effects = self.faults.effects()
         snapshot = self.telemetry.generate(self.tick_count, self.effects)
         self.history.append(snapshot)
         self.latest = snapshot
         return snapshot
 
-    def reset(self) -> None:
+    def reset(self) -> int:
+        cleared = self.faults.reset()
         self.network.reset()
         self.effects = SimulationEffects()
         self.telemetry.reset_noise()
@@ -87,7 +93,33 @@ class SimulationEngine:
         self.tick_count = 0
         self.latest = None
         self.tick()
-        log.info("[ENGINE] Reset to healthy baseline")
+        log.info("[ENGINE] Reset to healthy baseline (%d faults cleared)", cleared)
+        return cleared
+
+    async def reset_async(self) -> int:
+        async with self._lock:
+            cleared = self.reset()
+        await self.publish()
+        return cleared
+
+    # ------------------------------------------------------------- faults
+    async def inject_fault(self, request: InjectFaultRequest) -> ActiveFault:
+        async with self._lock:
+            fault = self.faults.inject(
+                request.fault_type, request.target_id, request.severity, request.duration_seconds
+            )
+            self.tick()  # reflect the fault immediately instead of waiting for the next tick
+        await self.publish()
+        return fault
+
+    async def clear_fault(self, fault_id: str) -> ActiveFault | None:
+        async with self._lock:
+            fault = self.faults.clear(fault_id, reason="operator")
+            if fault is not None:
+                self.tick()
+        if fault is not None:
+            await self.publish()
+        return fault
 
     # ----------------------------------------------------------- publish
     def subscribe(self, listener: StateListener) -> None:
@@ -100,6 +132,7 @@ class SimulationEngine:
             "tick": self.tick_count,
             "topology": self.network.to_topology_response().model_dump(mode="json"),
             "telemetry": self.latest.model_dump(mode="json") if self.latest else None,
+            "faults": [f.to_schema().model_dump(mode="json") for f in self.faults.active],
         }
 
     async def publish(self) -> None:
