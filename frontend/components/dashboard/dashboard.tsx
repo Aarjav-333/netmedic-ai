@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { FaultInjector } from "@/components/dashboard/fault-injector";
 import { MetricsPanel } from "@/components/dashboard/metrics-panel";
 import { SummaryCards } from "@/components/dashboard/summary-cards";
 import { TopBar } from "@/components/dashboard/top-bar";
@@ -11,7 +12,7 @@ import { useNetworkSocket } from "@/hooks/use-network-socket";
 const DEFAULT_NODE = "R4";
 
 export function Dashboard() {
-  const { state, history, status } = useNetworkSocket();
+  const { state, history, status, clearHistory } = useNetworkSocket();
   const [selectedNode, setSelectedNode] = useState(DEFAULT_NODE);
 
   const topology = state?.topology ?? null;
@@ -56,12 +57,12 @@ export function Dashboard() {
           </Card>
 
           <div className="flex flex-col gap-4">
-            <Card size="sm">
-              <CardHeader>
-                <CardTitle className="text-sm">Fault injector</CardTitle>
-              </CardHeader>
-              <CardContent className="text-xs text-muted-foreground">Available in the next phase.</CardContent>
-            </Card>
+            <FaultInjector
+              topology={topology}
+              activeFaults={state?.faults ?? []}
+              onReset={clearHistory}
+              disabled={status !== "connected"}
+            />
             <Card size="sm">
               <CardHeader>
                 <CardTitle className="text-sm">AI diagnosis</CardTitle>

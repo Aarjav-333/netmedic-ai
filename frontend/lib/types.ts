@@ -152,4 +152,45 @@ export interface StateMessage {
   tick: number;
   topology: Topology;
   telemetry: TelemetrySnapshot | null;
+  faults: ActiveFault[];
+}
+
+// ---- Faults ----
+export type FaultType =
+  | "router_congestion"
+  | "link_failure"
+  | "packet_loss_spike"
+  | "bandwidth_degradation"
+  | "node_overload"
+  | "traffic_spike"
+  | "router_failure";
+export type Severity = "low" | "medium" | "high";
+export type TargetKind = "node" | "link";
+
+export interface FaultDefinition {
+  type: FaultType;
+  label: string;
+  description: string;
+  target_kind: TargetKind;
+  node_types: NodeType[];
+}
+
+export interface ActiveFault {
+  id: string;
+  type: FaultType;
+  label: string;
+  target_id: string;
+  target_kind: TargetKind;
+  severity: Severity;
+  injected_at: string;
+  expires_at: string | null;
+  cleared_at: string | null;
+  cleared_by: string | null;
+}
+
+export interface InjectFaultRequest {
+  fault_type: FaultType;
+  target_id: string;
+  severity?: Severity;
+  duration_seconds?: number;
 }
