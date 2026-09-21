@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, RotateCcw, Syringe, X, Zap } from "lucide-react";
+import { DemoControl } from "@/components/dashboard/demo-control";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError, clearFault, getFaults, injectFault, resetSimulation } from "@/lib/api";
 import { formatTime } from "@/lib/status";
-import type { ActiveFault, FaultDefinition, FaultType, Severity, Topology } from "@/lib/types";
+import type { ActiveFault, DemoState, FaultDefinition, FaultType, Severity, Topology } from "@/lib/types";
 
 const SEVERITIES: { value: Severity; label: string }[] = [
   { value: "low", label: "Low" },
@@ -18,11 +19,13 @@ const SEVERITIES: { value: Severity; label: string }[] = [
 export function FaultInjector({
   topology,
   activeFaults,
+  demo,
   onReset,
   disabled,
 }: {
   topology: Topology | null;
   activeFaults: ActiveFault[];
+  demo: DemoState | null;
   onReset?: () => void;
   disabled?: boolean;
 }) {
@@ -100,6 +103,7 @@ export function FaultInjector({
         <span className="text-[11px] text-muted-foreground">{activeFaults.length} active</span>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
+        <DemoControl demo={demo} disabled={disabled} />
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           Target
           <Select value={target} onValueChange={setTarget} disabled={!topology || disabled}>

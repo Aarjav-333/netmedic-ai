@@ -18,6 +18,7 @@ from app.ai.factory import create_provider
 from app.ai.provider import build_context, explain_with_fallback
 from app.config import get_settings
 from app.database.repository import SNAPSHOT_EVERY_TICKS, Database
+from app.demo import DemoRunner
 from app.detection.detector import AnomalyDetector
 from app.diagnosis.rca import RootCauseAnalyzer
 from app.healing.engine import HealingEngine
@@ -56,6 +57,7 @@ class SimulationEngine:
         self.healing = HealingEngine(self.network, self.telemetry, self.faults)
         self.incidents = IncidentManager(self.healing, self.history, auto_heal=True)
         self.ai_provider = create_provider()
+        self.demo = DemoRunner(self)
         self.incidents.on_diagnosed = self._on_diagnosed
         if self.db is not None:
             self.incidents.on_change = self._persist_incident
@@ -78,6 +80,7 @@ class SimulationEngine:
         log.info("[ENGINE] Tick loop started (%.1fs)", self.tick_seconds)
 
     async def stop(self) -> None:
+        await self.demo.stop()
         if self._task is None:
             return
         self._task.cancel()
@@ -238,6 +241,7 @@ class SimulationEngine:
             "incidents": [s.model_dump(mode="json") for s in self.incidents.summaries()[:25]],
             "quarantined": self.healing.quarantined_ids(),
             "auto_heal": self.incidents.auto_heal,
+            "demo": self.demo.state.to_dict(),
         }
 
     async def publish(self) -> None:

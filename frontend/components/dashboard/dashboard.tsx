@@ -106,6 +106,7 @@ export function Dashboard() {
             <FaultInjector
               topology={topology}
               activeFaults={state?.faults ?? []}
+              demo={state?.demo ?? null}
               onReset={handleReset}
               disabled={status !== "connected"}
             />

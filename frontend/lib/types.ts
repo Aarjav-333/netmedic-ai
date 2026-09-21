@@ -159,6 +159,21 @@ export interface StateMessage {
   incidents: IncidentSummary[];
   quarantined: string[];
   auto_heal: boolean;
+  demo: DemoState;
+}
+
+// ---- Demo ----
+export interface DemoState {
+  running: boolean;
+  scenario: string | null;
+  step: number;
+  total_steps: number;
+  message: string;
+  started_at: string | null;
+  finished_at: string | null;
+  outcome: string | null;
+  incident_id: string | null;
+  history: string[];
 }
 
 // ---- Faults ----
