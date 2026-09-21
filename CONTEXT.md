@@ -27,15 +27,17 @@
 
 ## Current Project Status
 
-Phase 0 — project initialization (~2% complete).
+Phase 0 complete — project initialised; starting Phase 1 (~5% complete).
 
 ## Completed
 
-- Repository scaffold, README, CONTEXT, .gitignore, .env.example, LICENSE
+- Phase 0: public GitHub repo, README, CONTEXT, .gitignore, .env.example, LICENSE
+- Backend skeleton: FastAPI app factory, pydantic-settings config (`app/config.py`), tagged logging, `GET /api/health`, pytest fixture + health test
+- Frontend skeleton: Next.js 16.3 (App Router, TS, Tailwind v4), shadcn/ui v4 (radix base; `cn` from the `cn` package), `@xyflow/react` 12, `recharts` 3, typed `lib/api.ts` fetch helper, dark theme by default, landing page shows backend connection status
 
 ## In Progress
 
-- Frontend + backend initialization
+- Phase 1: NetworkX topology + routing + topology API
 
 ## Next Tasks
 
@@ -129,7 +131,7 @@ docker compose up --build
 
 ## Known Issues
 
-None yet.
+- Frontend toolchain notes: Next.js 16 ships its own docs in `frontend/node_modules/next/dist/docs/` — consult before using unfamiliar APIs. `create-next-app` generated `frontend/AGENTS.md`/`CLAUDE.md`; keep them committed (next dev regenerates them).
 
 ## Demo Procedure
 
@@ -138,5 +140,5 @@ Not yet available (Phase 11).
 ## Last Major Change
 
 - **Date:** 2026-09-21
-- **Description:** Phase 0 — repository initialised.
-- **Commit:** (initial)
+- **Description:** Phase 0 complete — backend + frontend scaffolds build and run together.
+- **Commit:** db41bd8
