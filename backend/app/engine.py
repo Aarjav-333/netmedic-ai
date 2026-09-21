@@ -15,7 +15,9 @@ from functools import lru_cache
 from typing import Any
 
 from app.config import get_settings
+from app.detection.detector import AnomalyDetector
 from app.logging_config import get_logger
+from app.models.detection import DetectionResult
 from app.models.faults import InjectFaultRequest
 from app.models.telemetry import MetricPoint, TelemetrySnapshot
 from app.simulation.effects import SimulationEffects
@@ -36,6 +38,8 @@ class SimulationEngine:
         self.network = NetworkSimulator()
         self.telemetry = TelemetryGenerator(self.network)
         self.faults = FaultInjector(self.network)
+        self.detector = AnomalyDetector(self.network)
+        self.detection: DetectionResult | None = None
         self.effects = SimulationEffects()
         self.history: deque[TelemetrySnapshot] = deque(maxlen=HISTORY_LENGTH)
         self.latest: TelemetrySnapshot | None = None
@@ -82,6 +86,7 @@ class SimulationEngine:
         snapshot = self.telemetry.generate(self.tick_count, self.effects)
         self.history.append(snapshot)
         self.latest = snapshot
+        self.detection = self.detector.detect(snapshot)
         return snapshot
 
     def reset(self) -> int:
@@ -89,6 +94,8 @@ class SimulationEngine:
         self.network.reset()
         self.effects = SimulationEffects()
         self.telemetry.reset_noise()
+        self.detector.reset()
+        self.detection = None
         self.history.clear()
         self.tick_count = 0
         self.latest = None
@@ -133,6 +140,7 @@ class SimulationEngine:
             "topology": self.network.to_topology_response().model_dump(mode="json"),
             "telemetry": self.latest.model_dump(mode="json") if self.latest else None,
             "faults": [f.to_schema().model_dump(mode="json") for f in self.faults.active],
+            "detection": self.detection.model_dump(mode="json") if self.detection else None,
         }
 
     async def publish(self) -> None:

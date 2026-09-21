@@ -87,5 +87,5 @@ def test_penalty_formulas():
 
 def test_link_loads_follow_routes(sim):
     loads = sim.link_loads()
-    assert loads["L-R4-SW3"] == 600.0  # F3 (400) + F5 (200)
-    assert loads["L-GW-R1"] == 1150.0
+    assert loads["L-R4-SW3"] == 450.0  # F3 (300) + F5 (150)
+    assert loads["L-GW-R1"] == 1000.0

@@ -44,3 +44,7 @@ Thumbs.db
 coverage/
 .coverage
 htmlcov/
+
+# ---- Generated ML artefacts / datasets ----
+backend/data/models/
+backend/data/training/

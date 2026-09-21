@@ -83,10 +83,10 @@ DEFAULT_LINKS: tuple[LinkDef, ...] = (
 )
 
 DEFAULT_FLOWS: tuple[FlowDef, ...] = (
-    FlowDef("F1", "Academic → Internet", "SW1", "GW", 350),
+    FlowDef("F1", "Academic → Internet", "SW1", "GW", 300),
     FlowDef("F2", "Library → Internet", "SW2", "GW", 250),
-    FlowDef("F3", "Hostel → Internet", "SW3", "GW", 400),
+    FlowDef("F3", "Hostel → Internet", "SW3", "GW", 300),
     FlowDef("F4", "Admin → Internet", "SW4", "GW", 150),
-    FlowDef("F5", "Hostel → Campus Server", "SW3", "SRV", 200),
+    FlowDef("F5", "Hostel → Campus Server", "SW3", "SRV", 150),
     FlowDef("F6", "Academic → Campus Server", "SW1", "SRV", 150),
 )
