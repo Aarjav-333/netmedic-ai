@@ -39,3 +39,13 @@ def test_origin_regex_is_full_matched():
     assert allowed(client, "https://demo-box.local:3000")
     assert not allowed(client, "http://192.168.1.10:30001")
     assert not allowed(client, "http://192.168.1.10:8000")
+
+
+def test_cors_never_allows_credentials():
+    client = make_client(cors_origin_regex=r"^https?://[^/]+:3000")
+    res = client.options(
+        "/api/health",
+        headers={"Origin": "http://192.168.1.10:3000", "Access-Control-Request-Method": "POST"},
+    )
+    assert res.headers.get("access-control-allow-origin") == "http://192.168.1.10:3000"
+    assert "access-control-allow-credentials" not in res.headers

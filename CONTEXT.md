@@ -24,7 +24,7 @@
 - **Database:** SQLite via SQLAlchemy (`backend/app/database/`): `incidents` (indexed columns + full JSON payload), `healing_actions`, `incident_events`, `telemetry_snapshots` (one summary every 10 ticks, pruned to 2000 rows). Incident history reloaded on boot. Tests use `backend/data/netmedic_test.db`.
 - **Demo mode:** `backend/app/demo.py` `DemoRunner` — reset → 5 s healthy → inject scenario → wait for the real pipeline to close the incident. Scenarios: congestion (R4), link_failure (L-R4-SW3), traffic_spike (SW3), overload (R2).
 - **WebSocket:** `/ws/network` pushes the full state message every tick: `{type, tick, topology, telemetry, faults, detection, diagnosis, incident, incidents, quarantined, auto_heal, demo}`.
-- **Backend address resolution (frontend):** nothing host-specific is baked into the bundle. `frontend/lib/config.ts` resolves once per page load: build-time `NEXT_PUBLIC_*` override → runtime `GET /api/config` (Next route handler reading `NETMEDIC_BACKEND_PORT` / `NETMEDIC_API_BASE_URL` / `NETMEDIC_WS_URL` from the frontend server's env) → derive from `window.location` + port 8000. Compose passes `NETMEDIC_BACKEND_PORT=${BACKEND_PORT}` at runtime, so port changes need no rebuild. Backend CORS: exact origins + `NETMEDIC_CORS_ORIGIN_REGEX` (full-matched; compose default `^https?://[^/]+:<FRONTEND_PORT>`).
+- **Backend address resolution (frontend):** nothing host-specific is baked into the bundle. `frontend/lib/config.ts` resolves once per page load: build-time `NEXT_PUBLIC_*` override → runtime `GET /api/config` (Next route handler reading `NETMEDIC_BACKEND_PORT` / `NETMEDIC_API_BASE_URL` / `NETMEDIC_WS_URL` from the frontend server's env) → derive from `window.location` + port 8000; the WS URL, unless given explicitly, is derived from the resolved API URL. A failed `/api/config` fetch is not cached (the socket retry re-resolves). Compose passes `NETMEDIC_BACKEND_PORT=${BACKEND_PORT}` at runtime, so port changes need no rebuild. Backend CORS: exact origins + `NETMEDIC_CORS_ORIGIN_REGEX` (full-matched; compose default `^https?://[^/]+:<FRONTEND_PORT>`), `allow_credentials=False`. `.env.example` leaves the CORS vars commented out so compose can derive them from `FRONTEND_PORT`.
 
 ## Current Repository
 
@@ -123,7 +123,7 @@ Components in `frontend/components/dashboard/`: `dashboard.tsx` (layout + incide
 
 ## Testing
 
-`cd backend && pytest` — 93 tests: CORS (exact + regex), routing, telemetry, health score, faults (+API), detection (+API), RCA (+API), healing/verification/incidents (+API), AI providers (mock + mocked-HTTP Qualcomm), database round-trip, demo mode, WebSocket. Full suite ≈12 s (first run trains the model). Frontend: `npm run lint`, `npx tsc --noEmit`, `npm run build` all clean.
+`cd backend && pytest` — 94 tests: CORS (exact + regex, no credentials), routing, telemetry, health score, faults (+API), detection (+API), RCA (+API), healing/verification/incidents (+API), AI providers (mock + mocked-HTTP Qualcomm), database round-trip, demo mode, WebSocket. Full suite ≈12 s (first run trains the model). Frontend: `npm run lint`, `npx tsc --noEmit`, `npm run build` all clean.
 
 ## Environment Variables
 

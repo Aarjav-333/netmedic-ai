@@ -3,3 +3,6 @@ node_modules
 out
 .git
 *.log
+# Local env files must not reach `next build`: NEXT_PUBLIC_* would be baked into the
+# bundle and override the runtime /api/config resolution.
+.env*

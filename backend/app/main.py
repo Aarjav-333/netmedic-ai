@@ -54,7 +54,9 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_origin_regex=settings.cors_origin_regex or None,
-        allow_credentials=True,
+        # No cookies or auth headers are used, so credentialed CORS would only widen what
+        # the any-host-on-the-dashboard-port regex allows.
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

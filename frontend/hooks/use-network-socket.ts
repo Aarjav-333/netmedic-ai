@@ -44,8 +44,6 @@ export function useNetworkSocket() {
   const [history, setHistory] = useState<MetricPoint[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const attemptRef = useRef(0);
-  const socketRef = useRef<WebSocket | null>(null);
-  const closedRef = useRef(false);
 
   const backfill = useCallback(async () => {
     try {
@@ -67,16 +65,20 @@ export function useNetworkSocket() {
   }, []);
 
   useEffect(() => {
-    closedRef.current = false;
+    // Per-run state: `connect` awaits the backend config, so a fast unmount/remount
+    // (React Strict Mode, HMR) can resume an old run after a new one has started. A
+    // shared ref would let the old run open a second, orphaned socket.
+    let cancelled = false;
+    let socket: WebSocket | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const connect = async () => {
-      if (closedRef.current) return;
+      if (cancelled) return;
       setStatus(attemptRef.current === 0 ? "connecting" : "reconnecting");
       const { wsUrl } = await getBackendConfig();
-      if (closedRef.current) return;
+      if (cancelled) return;
       const ws = new WebSocket(wsUrl);
-      socketRef.current = ws;
+      socket = ws;
 
       ws.onopen = () => {
         attemptRef.current = 0;
@@ -103,8 +105,8 @@ export function useNetworkSocket() {
       };
 
       ws.onclose = () => {
-        socketRef.current = null;
-        if (closedRef.current) return;
+        if (socket === ws) socket = null;
+        if (cancelled) return;
         attemptRef.current += 1;
         setStatus("offline");
         const delay = Math.min(MAX_BACKOFF_MS, 500 * 2 ** Math.min(attemptRef.current, 4));
@@ -119,9 +121,9 @@ export function useNetworkSocket() {
     void connect();
 
     return () => {
-      closedRef.current = true;
+      cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
-      socketRef.current?.close();
+      socket?.close();
     };
   }, [backfill]);
 
