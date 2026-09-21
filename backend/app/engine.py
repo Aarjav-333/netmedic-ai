@@ -17,10 +17,13 @@ from typing import Any
 from app.config import get_settings
 from app.detection.detector import AnomalyDetector
 from app.diagnosis.rca import RootCauseAnalyzer
+from app.healing.engine import HealingEngine
+from app.incidents.manager import IncidentManager
 from app.logging_config import get_logger
 from app.models.detection import DetectionResult
 from app.models.diagnosis import Diagnosis
 from app.models.faults import InjectFaultRequest
+from app.models.incident import Incident
 from app.models.telemetry import MetricPoint, TelemetrySnapshot
 from app.simulation.effects import SimulationEffects
 from app.simulation.faults import ActiveFault, FaultInjector
@@ -46,6 +49,8 @@ class SimulationEngine:
         self.diagnosis: Diagnosis | None = None
         self.effects = SimulationEffects()
         self.history: deque[TelemetrySnapshot] = deque(maxlen=HISTORY_LENGTH)
+        self.healing = HealingEngine(self.network, self.telemetry, self.faults)
+        self.incidents = IncidentManager(self.healing, self.history, auto_heal=True)
         self.latest: TelemetrySnapshot | None = None
         self.tick_count = 0
         self._listeners: list[StateListener] = []
@@ -86,15 +91,24 @@ class SimulationEngine:
         """Run one pipeline iteration synchronously (used by the loop and by tests)."""
         self.tick_count += 1
         self.faults.expire()
+        for record in self.healing.tick(self.tick_count, self.detection):
+            self.incidents.record_action(record)
         self.effects = self.faults.effects()
         snapshot = self.telemetry.generate(self.tick_count, self.effects)
         self.history.append(snapshot)
         self.latest = snapshot
         self.detection = self.detector.detect(snapshot)
-        self.diagnosis = self.rca.diagnose(self.detection, snapshot) if self.detection.anomalies else None
+        quarantined = set(self.healing.quarantined_ids())
+        self.diagnosis = (
+            self.rca.diagnose(self.detection, snapshot, exclude=quarantined) if self.detection.anomalies else None
+        )
+        self.incidents.process(self.tick_count, snapshot, self.detection, self.diagnosis)
         return snapshot
 
     def reset(self) -> int:
+        self.incidents.cancel_active(self.tick_count, "Simulation reset by operator")
+        self.incidents.reset()
+        self.healing.clear()
         cleared = self.faults.reset()
         self.network.reset()
         self.effects = SimulationEffects()
@@ -125,6 +139,20 @@ class SimulationEngine:
         await self.publish()
         return fault
 
+    # ------------------------------------------------------------ healing
+    async def execute_healing(self, incident_id: str) -> Incident:
+        async with self._lock:
+            incident = self.incidents.request_healing(incident_id)
+            self.tick()  # run the REMEDIATING stage right away
+        await self.publish()
+        return incident
+
+    async def set_auto_heal(self, enabled: bool) -> bool:
+        async with self._lock:
+            self.incidents.auto_heal = enabled
+        await self.publish()
+        return enabled
+
     async def clear_fault(self, fault_id: str) -> ActiveFault | None:
         async with self._lock:
             fault = self.faults.clear(fault_id, reason="operator")
@@ -148,6 +176,10 @@ class SimulationEngine:
             "faults": [f.to_schema().model_dump(mode="json") for f in self.faults.active],
             "detection": self.detection.model_dump(mode="json") if self.detection else None,
             "diagnosis": self.diagnosis.model_dump(mode="json") if self.diagnosis else None,
+            "incident": self.incidents.active.model_dump(mode="json") if self.incidents.active else None,
+            "incidents": [s.model_dump(mode="json") for s in self.incidents.summaries()[:25]],
+            "quarantined": self.healing.quarantined_ids(),
+            "auto_heal": self.incidents.auto_heal,
         }
 
     async def publish(self) -> None:

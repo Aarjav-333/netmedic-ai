@@ -43,8 +43,16 @@ class RootCauseAnalyzer:
     def __init__(self, network: NetworkSimulator) -> None:
         self.network = network
 
-    def diagnose(self, detection: DetectionResult, snapshot: TelemetrySnapshot) -> Diagnosis | None:
-        candidates = [a for a in detection.anomalies if a.component_kind in (ComponentKind.NODE, ComponentKind.LINK)]
+    def diagnose(
+        self, detection: DetectionResult, snapshot: TelemetrySnapshot, exclude: set[str] | None = None
+    ) -> Diagnosis | None:
+        """Diagnose the flagged components. `exclude` holds components already under remediation."""
+        exclude = exclude or set()
+        candidates = [
+            a
+            for a in detection.anomalies
+            if a.component_kind in (ComponentKind.NODE, ComponentKind.LINK) and a.component_id not in exclude
+        ]
         if not candidates:
             return None
         ctx = Context(self.network, snapshot)

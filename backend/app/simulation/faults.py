@@ -208,6 +208,15 @@ class FaultInjector:
                 cleared += 1
         return cleared
 
+    def on_node_restart(self, node_id: str) -> list[ActiveFault]:
+        """Simulation physics: restarting a node kills runaway processes, clearing overload faults."""
+        cleared = []
+        for fault in self.active:
+            if fault.target_id == node_id and fault.type == FaultType.NODE_OVERLOAD:
+                if self.clear(fault.id, reason="node_restart"):
+                    cleared.append(fault)
+        return cleared
+
     def forget_cleared(self, keep_last: int = 20) -> None:
         cleared = [f for f in self._faults.values() if not f.is_active]
         for fault in cleared[:-keep_last]:

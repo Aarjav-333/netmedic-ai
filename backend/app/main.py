@@ -10,7 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.detection import router as detection_router
 from app.api.diagnosis import router as diagnosis_router
 from app.api.faults import router as faults_router
+from app.api.healing import router as healing_router
 from app.api.health import router as health_router
+from app.api.incidents import router as incidents_router
 from app.api.network import router as network_router
 from app.api.telemetry import router as telemetry_router
 from app.api.ws import manager as ws_manager
@@ -21,7 +23,7 @@ from app.logging_config import configure_logging, get_logger
 
 log = get_logger("netmedic")
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 
 
 @asynccontextmanager
@@ -59,6 +61,8 @@ def create_app() -> FastAPI:
     app.include_router(faults_router, prefix="/api")
     app.include_router(detection_router, prefix="/api")
     app.include_router(diagnosis_router, prefix="/api")
+    app.include_router(incidents_router, prefix="/api")
+    app.include_router(healing_router, prefix="/api")
     app.include_router(ws_router)
     return app
 

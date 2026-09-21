@@ -1,4 +1,4 @@
-def test_topology_endpoint(client):
+def test_topology_endpoint(client, engine):
     res = client.get("/api/network/topology")
     assert res.status_code == 200
     body = res.json()
@@ -8,7 +8,7 @@ def test_topology_endpoint(client):
     assert body["nodes"][0]["position"]["x"] >= 0
 
 
-def test_status_endpoint(client):
+def test_status_endpoint(client, engine):
     res = client.get("/api/network/status")
     assert res.status_code == 200
     body = res.json()
