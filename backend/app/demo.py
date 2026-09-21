@@ -158,7 +158,8 @@ class DemoRunner:
             await self._step(2, f"Observing the healthy network for {HEALTHY_PAUSE_SECONDS:.0f} s")
             await asyncio.sleep(HEALTHY_PAUSE_SECONDS)
 
-            await self._step(3, f"Injecting {scenario.title.lower()} ({scenario.severity.value} severity)")
+            title = scenario.title[0].lower() + scenario.title[1:]
+            await self._step(3, f"Injecting {title} ({scenario.severity.value} severity)")
             await self.engine.inject_fault(
                 InjectFaultRequest(fault_type=scenario.fault_type, target_id=scenario.target_id, severity=scenario.severity)
             )

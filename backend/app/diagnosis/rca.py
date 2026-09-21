@@ -42,6 +42,7 @@ ROUTER_LIKE = {NodeType.ROUTER, NodeType.GATEWAY}
 class RootCauseAnalyzer:
     def __init__(self, network: NetworkSimulator) -> None:
         self.network = network
+        self._last_logged: tuple[str, str] | None = None
 
     def diagnose(
         self, detection: DetectionResult, snapshot: TelemetrySnapshot, exclude: set[str] | None = None
@@ -94,12 +95,15 @@ class RootCauseAnalyzer:
         evidence = self._evidence(best, ctx, affected_flows, anomaly.deviations if anomaly else [])
         plan = build_plan(root_cause, best.target_id, best.target_kind, self.network, affected_flows)
 
-        log.info(
-            "[DIAGNOSIS] Likely root cause: %s on %s (confidence %.0f%%)",
-            root_cause.value,
-            best.target_id,
-            confidence * 100,
-        )
+        key = (root_cause.value, best.target_id)
+        if key != self._last_logged:  # log once per distinct conclusion, not every tick
+            self._last_logged = key
+            log.info(
+                "[DIAGNOSIS] Likely root cause: %s on %s (confidence %.0f%%)",
+                root_cause.value,
+                best.target_id,
+                confidence * 100,
+            )
         return Diagnosis(
             tick=detection.tick,
             timestamp=datetime.now(timezone.utc),
