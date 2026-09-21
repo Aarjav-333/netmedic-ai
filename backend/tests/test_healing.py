@@ -170,3 +170,43 @@ def test_verify_classifies_outcomes():
     assert verify(base, before, bad).status == IncidentStatus.FAILED
     report = verify(None, before, good)
     assert report.status == IncidentStatus.RESOLVED and len(report.checks) == 4
+
+
+def test_mild_transient_anomaly_does_not_open_incident(engine):
+    """A weak 2-tick blip must not open an incident; a persistent mild anomaly still does."""
+    from app.models.detection import ComponentAnomaly, ComponentKind, DetectionResult
+    from datetime import datetime, timezone
+
+    engine.reset()
+    for _ in range(3):
+        engine.tick()
+    manager = engine.incidents
+    snapshot = engine.latest
+
+    def detection(severity: float, ticks: int) -> DetectionResult:
+        return DetectionResult(
+            tick=engine.tick_count,
+            timestamp=datetime.now(timezone.utc),
+            anomalies=[
+                ComponentAnomaly(
+                    component_id="R3", component_kind=ComponentKind.NODE, method="isolation_forest",
+                    decision_score=-0.01, severity=severity, is_anomaly=True, confirmed=ticks >= 2,
+                    consecutive_ticks=ticks,
+                )
+            ],
+            node_scores={"R3": severity},
+            confirmed_ids=["R3"] if ticks >= 2 else [],
+        )
+
+    manager.process(engine.tick_count, snapshot, detection(8.0, 2), None)
+    assert manager.active is None  # mild + short: ignored
+    manager.process(engine.tick_count, snapshot, detection(8.0, 4), None)
+    assert manager.active is not None  # mild but persistent: opened
+    incident = manager.active
+    # The anomaly then clears before a diagnosis exists -> cancelled, not failed.
+    empty = DetectionResult(tick=engine.tick_count, timestamp=datetime.now(timezone.utc), anomalies=[], node_scores={}, confirmed_ids=[])
+    for t in range(1, 8):
+        manager.process(engine.tick_count + t, snapshot, empty, None)
+    assert manager.active is None
+    assert incident.status == IncidentStatus.CANCELLED
+    assert "Transient" in incident.timeline[-1].message

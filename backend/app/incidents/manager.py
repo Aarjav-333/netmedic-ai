@@ -32,6 +32,9 @@ log = get_logger("netmedic.incidents")
 
 BASELINE_WINDOW = 5  # samples before the first abnormal one used as the pre-incident baseline
 DIAGNOSIS_TIMEOUT_TICKS = 4
+# Guard against transient blips: a mild anomaly must persist longer before it opens an incident.
+MIN_OPEN_SEVERITY = 20.0
+MILD_ANOMALY_TICKS = 4
 MAX_HISTORY = 100
 
 IncidentHook = Callable[[Incident], None]
@@ -130,6 +133,7 @@ class IncidentManager:
             if a.confirmed
             and a.component_kind in (ComponentKind.NODE, ComponentKind.LINK)
             and not self.healing.is_quarantined(a.component_id)
+            and (a.severity >= MIN_OPEN_SEVERITY or a.consecutive_ticks >= MILD_ANOMALY_TICKS)
         ]
         if not candidates:
             return
@@ -192,7 +196,11 @@ class IncidentManager:
             if diagnosis is not None:
                 self._apply_diagnosis(incident, diagnosis, tick)
             elif tick - self._stage_tick >= DIAGNOSIS_TIMEOUT_TICKS:
-                self._transition(incident, IncidentStatus.FAILED, tick, "Could not establish a root cause; anomaly cleared or signature unknown")
+                still_flagged = any(a.component_id == incident.component_id for a in detection.anomalies)
+                if still_flagged:
+                    self._transition(incident, IncidentStatus.FAILED, tick, "Anomaly persists but matches no known root-cause signature; escalated to operator")
+                else:
+                    self._transition(incident, IncidentStatus.CANCELLED, tick, "Transient anomaly cleared on its own before a root cause could be established")
                 self._finish(incident)
 
         elif status == IncidentStatus.DIAGNOSED:
