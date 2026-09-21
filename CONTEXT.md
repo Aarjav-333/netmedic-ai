@@ -27,7 +27,7 @@
 
 ## Current Project Status
 
-Phase 0 complete — project initialised; starting Phase 1 (~5% complete).
+Phases 0–3 complete (simulator, telemetry/WebSocket, dashboard base). Starting Phase 4 (fault injection). ~30% complete.
 
 ## Completed
 
@@ -35,15 +35,16 @@ Phase 0 complete — project initialised; starting Phase 1 (~5% complete).
 - Backend skeleton: FastAPI app factory, pydantic-settings config (`app/config.py`), tagged logging, `GET /api/health`, pytest fixture + health test
 - Frontend skeleton: Next.js 16.3 (App Router, TS, Tailwind v4), shadcn/ui v4 (radix base; `cn` from the `cn` package), `@xyflow/react` 12, `recharts` 3, typed `lib/api.ts` fetch helper, dark theme by default, landing page shows backend connection status
 
+- Phase 1: `NetworkSimulator` (10 nodes / 15 links / 6 flows), Dijkstra routing with penalties, static routing table, `GET /api/network/{topology,status}`
+- Phase 2: physics-based `TelemetryGenerator`, documented health score (`app/telemetry/health.py`), `SimulationEngine` tick loop, `GET /api/telemetry/{current,history}`, `WS /ws/network`
+- Phase 3: dashboard (`frontend/components/dashboard/*`): WebSocket hook, top bar, stat tiles, React Flow topology with animated routes, Recharts small multiples with node filter
+
 ## In Progress
 
-- Phase 1: NetworkX topology + routing + topology API
+- Phase 4: fault injection (backend `app/simulation/faults.py` + `POST /api/faults/*` + frontend injector panel)
 
 ## Next Tasks
 
-1. Phase 1 — NetworkX topology, node/link models, Dijkstra routing, topology API
-2. Phase 2 — telemetry generator + WebSocket streaming
-3. Phase 3 — dashboard base (React Flow topology, summary cards, charts)
 4. Phase 4 — fault injection
 5. Phase 5 — Isolation Forest detection
 6. Phase 6 — root cause analysis
@@ -140,5 +141,5 @@ Not yet available (Phase 11).
 ## Last Major Change
 
 - **Date:** 2026-09-21
-- **Description:** Phase 0 complete — backend + frontend scaffolds build and run together.
-- **Commit:** db41bd8
+- **Description:** Phases 1–3 complete — simulator, telemetry stream and live dashboard working end to end.
+- **Commit:** 3762fed
