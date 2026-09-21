@@ -35,7 +35,7 @@
 
 ## Current Project Status
 
-All phases 0–12 implemented. The complete Detect → Diagnose → Heal → Verify loop works end to end (backend + dashboard), demo mode works, persistence works, Dockerfiles written. Remaining: Docker image build not yet verified locally (Docker Desktop was not running), optional polish. ~95% complete.
+All phases 0–12 implemented and verified, including the Docker stack (both images build; demo resolves inside the containers). ~98% complete — only optional polish and the real Qualcomm credentials remain.
 
 ## Completed
 
@@ -56,14 +56,13 @@ All phases 0–12 implemented. The complete Detect → Diagnose → Heal → Ver
 
 ## In Progress
 
-- Nothing active. Next session: verify `docker compose up --build` with Docker Desktop running.
+- Nothing active.
 
 ## Next Tasks
 
-1. Verify Docker builds (`docker compose up --build`) once Docker Desktop is running; fix any image issues.
-2. Optional: obtain Qualcomm Cloud AI Playground credentials from the team, set `NETMEDIC_AI_PROVIDER=qualcomm` + `QUALCOMM_AI_*`, confirm the request shape in `backend/app/ai/qualcomm.py` against the real API.
-3. Optional polish: mobile layout pass, keyboard focus states, README screenshot refresh after any UI change.
-4. Optional: rehearse with `docs/demo-script.md`; consider recording a GIF for the README.
+1. Optional: obtain Qualcomm Cloud AI Playground credentials from the team, set `NETMEDIC_AI_PROVIDER=qualcomm` + `QUALCOMM_AI_*`, confirm the request shape in `backend/app/ai/qualcomm.py` against the real API.
+2. Optional polish: mobile layout pass, keyboard focus states, README screenshot refresh after any UI change.
+3. Optional: rehearse with `docs/demo-script.md`; consider recording a GIF for the README.
 
 ## Important Technical Decisions
 
@@ -147,13 +146,15 @@ cd backend && pytest
 # Retrain detector
 cd backend && python ../scripts/train_detector.py [--save-dataset]
 
-# Docker (Dockerfiles + compose written; build not yet verified locally)
+# Docker (verified 2026-09-21: both images build, demo resolves in-container)
 docker compose up --build
+BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose up --build   # when 8000/3000 are busy
 ```
 
 ## Known Issues
 
-- Docker images not yet built/verified (Docker Desktop was not running during development).
+- Port 8000 on the dev machine is used by another project (SATVA) running in Docker; use `BACKEND_PORT`/`FRONTEND_PORT` overrides for the NetMedic stack there.
+- `frontend/package-lock.json` must stay complete for Linux (regenerated inside `node:20-alpine` with `npm install --package-lock-only`); a Windows-only `npm install` can drop the `@emnapi/*` optional entries and break `npm ci` in Docker.
 - Qualcomm provider untested against the real API (no credentials); request shape is an assumption.
 - Core router R1 and link GW–R1 have no redundancy by design → incidents there escalate and FAIL honestly.
 - `next dev` regenerates `frontend/AGENTS.md`/`CLAUDE.md`; keep them committed.
@@ -165,5 +166,5 @@ See `docs/demo-script.md`. Short version: backend + frontend running → dashboa
 ## Last Major Change
 
 - **Date:** 2026-09-21
-- **Description:** All phases implemented — AI provider, SQLite persistence, full incident UI, demo mode, Docker files, README/docs, transient-anomaly guard.
-- **Commit:** 7051b63
+- **Description:** Docker stack verified end to end (images build, containerised demo resolves); compose ports made configurable; Linux-complete lockfile.
+- **Commit:** see `git log -1`

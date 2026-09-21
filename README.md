@@ -207,8 +207,11 @@ pytest            # 90+ tests: routing, telemetry, faults, detection, RCA, heali
 ### Docker
 
 ```bash
-docker compose up --build       # backend on :8000, dashboard on :3000
+docker compose up --build                                   # backend on :8000, dashboard on :3000
+BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose up --build   # if those ports are taken
 ```
+
+The backend trains the detector on first boot (~10 s in the container); the SQLite database and model live in the `netmedic-data` volume. The dashboard URLs are baked into the frontend image at build time, so pass the port variables to `build` as well when changing them.
 
 ## Demo Workflow
 

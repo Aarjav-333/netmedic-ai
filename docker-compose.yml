@@ -1,9 +1,11 @@
+# Ports are configurable so the stack can coexist with other projects:
+#   BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose up --build
 services:
   backend:
     build: ./backend
     container_name: netmedic-backend
     environment:
-      NETMEDIC_CORS_ORIGINS: http://localhost:3000
+      NETMEDIC_CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
       NETMEDIC_TICK_SECONDS: "1.5"
       NETMEDIC_AI_PROVIDER: ${NETMEDIC_AI_PROVIDER:-mock}
       QUALCOMM_AI_BASE_URL: ${QUALCOMM_AI_BASE_URL:-}
@@ -12,26 +14,27 @@ services:
     volumes:
       - netmedic-data:/app/data   # SQLite database + trained model persist across restarts
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s
       timeout: 5s
-      retries: 6
+      retries: 12
+      start_period: 40s   # first boot trains the Isolation Forest
 
   frontend:
     build:
       context: ./frontend
       args:
-        # The browser talks to the backend directly, so these are host-visible URLs.
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
-        NEXT_PUBLIC_WS_URL: ws://localhost:8000/ws/network
+        # The browser talks to the backend directly, so these are host-visible URLs (baked at build time).
+        NEXT_PUBLIC_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}
+        NEXT_PUBLIC_WS_URL: ws://localhost:${BACKEND_PORT:-8000}/ws/network
     container_name: netmedic-frontend
     depends_on:
       backend:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
 
 volumes:
   netmedic-data:
