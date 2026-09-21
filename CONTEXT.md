@@ -76,7 +76,7 @@ All phases 0–12 implemented and verified, including the Docker stack (both ima
 - **Escalation.** When the planner's simulated reroute leaves flows without an alternative (e.g. core router R1, link GW–R1) the plan is ESCALATE and the incident FAILS honestly.
 - **Incident history survives reset**; only the active incident is cancelled.
 - **Transient guard.** After a ~5000-tick healthy run, one 2-tick severity-8 blip on R3 opened an incident that ended FAILED. Incidents now need severity ≥ 20 or 4 consecutive ticks; anomalies that clear before diagnosis close as CANCELLED.
-- **Demo mode never scripts outcomes.** It only resets, waits, and injects; the pipeline decides the result and the fault stays active afterwards so the reroute remains visible.
+- **Demo mode never scripts outcomes.** It only resets, waits, and injects; the pipeline decides the result and the fault stays active afterwards so the reroute remains visible. One side effect: `DemoRunner._run` forces `auto_heal = True` after the reset so the demo never blocks on manual approval, and nothing restores the operator's previous setting — if they had switched to Manual, it stays Armed until they toggle it back.
 - **Bash tool quirk (dev environment):** heredoc commands over ~7 KB fail with "unexpected EOF"; write large files with the Write tool.
 
 ## API Endpoints
@@ -95,7 +95,7 @@ All phases 0–12 implemented and verified, including the Docker stack (both ima
 
 ## Data Models
 
-Pydantic (`backend/app/models/`): `network.py` (NodeSchema, LinkSchema, FlowSchema, RouteSchema, TopologyResponse), `telemetry.py` (NodeTelemetry, LinkTelemetry, FlowTelemetry, NetworkSummary, TelemetrySnapshot, MetricPoint), `faults.py` (FaultType, Severity, ActiveFaultSchema, InjectFaultRequest), `detection.py` (ComponentAnomaly, MetricDeviation, DetectionResult), `diagnosis.py` (RootCause, ActionType, Hypothesis, RuleCheck, RemediationPlan, Diagnosis), `incident.py` (IncidentStatus, Incident, IncidentEvent, HealingActionRecord, RouteChange, MetricWindow, RecoveryCheck, RecoveryReport, IncidentMetrics, IncidentSummary), `ai.py` (AIExplanation, AIProviderStatus). ORM tables in `backend/app/database/models.py`. Frontend mirrors in `frontend/lib/types.ts`.
+Pydantic (`backend/app/models/`): `network.py` (NodeSchema, LinkSchema, FlowSchema, RouteSchema, TopologyResponse), `telemetry.py` (NodeTelemetry, LinkTelemetry, FlowTelemetry, NetworkSummary, TelemetrySnapshot, MetricPoint), `faults.py` (FaultType, Severity, ActiveFaultSchema, InjectFaultRequest), `detection.py` (ComponentAnomaly, MetricDeviation, DetectionResult), `diagnosis.py` (RootCause, ActionType, Hypothesis, RuleCheck, RemediationPlan, Diagnosis), `incident.py` (IncidentStatus, Incident, IncidentEvent, HealingActionRecord, RouteChange, MetricWindow, RecoveryCheck, RecoveryReport, IncidentMetrics, IncidentSummary, HealingModeRequest, HealingModeResponse), `ai.py` (AIExplanation, AIProviderStatus). ORM tables in `backend/app/database/models.py`. Frontend mirrors in `frontend/lib/types.ts`.
 
 ## Fault Types
 
@@ -157,7 +157,7 @@ docker compose up --build
 - Port 8000 on the dev machine is used by another project (SATVA) running in Docker. For the compose stack set `BACKEND_PORT`/`FRONTEND_PORT` in a project-root `.env` (or `$env:BACKEND_PORT=... ` in PowerShell); for local dev run uvicorn on another port and set `NETMEDIC_BACKEND_PORT` in `frontend/.env.local`.
 - `frontend/package-lock.json` must stay complete for Linux. Toolchain is pinned to the image (`packageManager` npm@10.8.2, `.nvmrc` 20; run `corepack enable`). If another npm rewrites the lock and Docker's `npm ci` complains, regenerate inside `node:20-alpine` with `npm install --package-lock-only`.
 - Qualcomm provider untested against the real API (no credentials); request shape is an assumption.
-- Core router R1 and link GW–R1 have no redundancy by design → incidents there escalate and FAIL honestly.
+- No redundancy by design for the single-homed edges of the topology: core router R1, gateway GW (only link L-GW-R1), campus server SRV (only link L-R1-SRV), and those two links. Every flow terminates at GW (F1–F4) or SRV (F5–F6), so a fault on any of these strands flows, the planner returns ESCALATE, and the incident FAILS honestly.
 - `next dev` regenerates `frontend/AGENTS.md`/`CLAUDE.md`; keep them committed.
 
 ## Demo Procedure
