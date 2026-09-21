@@ -128,3 +128,76 @@
     @apply font-sans;
   }
 }
+
+/* ---- NetMedic tokens: status palette (reserved for state, never series) & chart chrome ---- */
+:root {
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-offline: #898781;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --chart-grid: #e1e0d9;
+  --chart-axis: #c3c2b7;
+  --chart-muted: #898781;
+  --chart-secondary: #52514e;
+}
+
+.dark {
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --chart-grid: #2c2c2a;
+  --chart-axis: #383835;
+  --chart-muted: #898781;
+  --chart-secondary: #c3c2b7;
+}
+
+@theme inline {
+  --color-status-good: var(--status-good);
+  --color-status-warning: var(--status-warning);
+  --color-status-serious: var(--status-serious);
+  --color-status-critical: var(--status-critical);
+  --color-status-offline: var(--status-offline);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-3: var(--series-3);
+}
+
+/* ---- Topology animations ---- */
+@keyframes netmedic-flow {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+.netmedic-flow-edge {
+  animation: netmedic-flow 1.1s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .netmedic-flow-edge {
+    animation: none;
+  }
+}
+
+/* React Flow chrome tweaks for the dark dashboard */
+.react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  color: var(--foreground);
+  fill: var(--foreground);
+}
+.react-flow__controls-button:hover {
+  background: var(--muted);
+}
+.react-flow__attribution {
+  background: transparent;
+  color: var(--muted-foreground);
+}
