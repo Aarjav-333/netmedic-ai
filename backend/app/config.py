@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     # Simulation loop
     tick_seconds: float = Field(default=1.5, ge=0.2, le=10.0)
+    # Disable the background loop (tests drive the engine tick-by-tick).
+    auto_tick: bool = True
 
     # Persistence
     database_url: str = "sqlite:///./data/netmedic.db"

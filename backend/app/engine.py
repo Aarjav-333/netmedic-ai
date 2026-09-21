@@ -1,30 +1,138 @@
 """SimulationEngine: the single orchestrator that owns every pipeline stage.
 
-Phase 1 exposes the network simulator only. Later phases plug telemetry,
-detection, diagnosis, healing and verification into the tick loop here.
+One background asyncio task calls `tick()` every `tick_seconds`. Each tick runs
+the pipeline in a fixed order (telemetry -> detection -> diagnosis -> healing ->
+verification, later phases plug in here) and then publishes a state message to
+every subscriber (the WebSocket manager).
 """
 
 from __future__ import annotations
 
+import asyncio
+from collections import deque
+from collections.abc import Awaitable, Callable
 from functools import lru_cache
+from typing import Any
 
+from app.config import get_settings
 from app.logging_config import get_logger
+from app.models.telemetry import MetricPoint, TelemetrySnapshot
+from app.simulation.effects import SimulationEffects
 from app.simulation.network import NetworkSimulator
+from app.telemetry.generator import TelemetryGenerator
 
 log = get_logger("netmedic.engine")
 
+HISTORY_LENGTH = 240  # ticks kept in memory for charts / verification windows
+
+StateListener = Callable[[dict[str, Any]], Awaitable[None]]
+
 
 class SimulationEngine:
-    def __init__(self) -> None:
+    def __init__(self, tick_seconds: float = 1.5) -> None:
+        self.tick_seconds = tick_seconds
         self.network = NetworkSimulator()
+        self.telemetry = TelemetryGenerator(self.network)
+        self.effects = SimulationEffects()
+        self.history: deque[TelemetrySnapshot] = deque(maxlen=HISTORY_LENGTH)
+        self.latest: TelemetrySnapshot | None = None
         self.tick_count = 0
+        self._listeners: list[StateListener] = []
+        self._task: asyncio.Task[None] | None = None
+        self._lock = asyncio.Lock()
+
+    # ----------------------------------------------------------- lifecycle
+    async def start(self) -> None:
+        if self._task is not None:
+            return
+        self.tick()  # make state available immediately
+        self._task = asyncio.create_task(self._run_loop(), name="netmedic-tick-loop")
+        log.info("[ENGINE] Tick loop started (%.1fs)", self.tick_seconds)
+
+    async def stop(self) -> None:
+        if self._task is None:
+            return
+        self._task.cancel()
+        try:
+            await self._task
+        except asyncio.CancelledError:
+            pass
+        self._task = None
+        log.info("[ENGINE] Tick loop stopped")
+
+    async def _run_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.tick_seconds)
+            try:
+                async with self._lock:
+                    self.tick()
+                await self.publish()
+            except Exception:  # noqa: BLE001 - never let the loop die
+                log.exception("[ENGINE] Tick failed")
+
+    # ---------------------------------------------------------------- tick
+    def tick(self) -> TelemetrySnapshot:
+        """Run one pipeline iteration synchronously (used by the loop and by tests)."""
+        self.tick_count += 1
+        snapshot = self.telemetry.generate(self.tick_count, self.effects)
+        self.history.append(snapshot)
+        self.latest = snapshot
+        return snapshot
 
     def reset(self) -> None:
         self.network.reset()
+        self.effects = SimulationEffects()
+        self.telemetry.reset_noise()
+        self.history.clear()
         self.tick_count = 0
+        self.latest = None
+        self.tick()
         log.info("[ENGINE] Reset to healthy baseline")
+
+    # ----------------------------------------------------------- publish
+    def subscribe(self, listener: StateListener) -> None:
+        self._listeners.append(listener)
+
+    def state_message(self) -> dict[str, Any]:
+        """Everything the dashboard needs, serialised as JSON-ready primitives."""
+        return {
+            "type": "state",
+            "tick": self.tick_count,
+            "topology": self.network.to_topology_response().model_dump(mode="json"),
+            "telemetry": self.latest.model_dump(mode="json") if self.latest else None,
+        }
+
+    async def publish(self) -> None:
+        if not self._listeners:
+            return
+        message = self.state_message()
+        for listener in list(self._listeners):
+            try:
+                await listener(message)
+            except Exception:  # noqa: BLE001
+                log.exception("[ENGINE] Listener failed")
+
+    # ------------------------------------------------------------ history
+    def metric_points(self, limit: int = 120) -> list[MetricPoint]:
+        points: list[MetricPoint] = []
+        for snap in list(self.history)[-limit:]:
+            points.append(
+                MetricPoint(
+                    tick=snap.tick,
+                    timestamp=snap.timestamp,
+                    health_score=snap.summary.health_score,
+                    avg_latency_ms=snap.summary.avg_latency_ms,
+                    avg_packet_loss_percent=snap.summary.avg_packet_loss_percent,
+                    total_throughput_mbps=snap.summary.total_throughput_mbps,
+                    node_latency_ms={n.node_id: n.latency_ms for n in snap.nodes},
+                    node_cpu_percent={n.node_id: n.cpu_percent for n in snap.nodes},
+                    node_utilization_percent={n.node_id: n.bandwidth_utilization_percent for n in snap.nodes},
+                    node_packet_loss_percent={n.node_id: n.packet_loss_percent for n in snap.nodes},
+                )
+            )
+        return points
 
 
 @lru_cache
 def get_engine() -> SimulationEngine:
-    return SimulationEngine()
+    return SimulationEngine(tick_seconds=get_settings().tick_seconds)
