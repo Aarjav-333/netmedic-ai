@@ -24,6 +24,7 @@
 - **Database:** SQLite via SQLAlchemy (`backend/app/database/`): `incidents` (indexed columns + full JSON payload), `healing_actions`, `incident_events`, `telemetry_snapshots` (one summary every 10 ticks, pruned to 2000 rows). Incident history reloaded on boot. Tests use `backend/data/netmedic_test.db`.
 - **Demo mode:** `backend/app/demo.py` `DemoRunner` — reset → 5 s healthy → inject scenario → wait for the real pipeline to close the incident. Scenarios: congestion (R4), link_failure (L-R4-SW3), traffic_spike (SW3), overload (R2).
 - **WebSocket:** `/ws/network` pushes the full state message every tick: `{type, tick, topology, telemetry, faults, detection, diagnosis, incident, incidents, quarantined, auto_heal, demo}`.
+- **Backend address resolution (frontend):** nothing host-specific is baked into the bundle. `frontend/lib/config.ts` resolves once per page load: build-time `NEXT_PUBLIC_*` override → runtime `GET /api/config` (Next route handler reading `NETMEDIC_BACKEND_PORT` / `NETMEDIC_API_BASE_URL` / `NETMEDIC_WS_URL` from the frontend server's env) → derive from `window.location` + port 8000. Compose passes `NETMEDIC_BACKEND_PORT=${BACKEND_PORT}` at runtime, so port changes need no rebuild. Backend CORS: exact origins + `NETMEDIC_CORS_ORIGIN_REGEX` (full-matched; compose default `^https?://[^/]+:<FRONTEND_PORT>`).
 
 ## Current Repository
 
@@ -122,7 +123,7 @@ Components in `frontend/components/dashboard/`: `dashboard.tsx` (layout + incide
 
 ## Testing
 
-`cd backend && pytest` — 91 tests: routing, telemetry, health score, faults (+API), detection (+API), RCA (+API), healing/verification/incidents (+API), AI providers (mock + mocked-HTTP Qualcomm), database round-trip, demo mode, WebSocket. Full suite ≈12 s (first run trains the model). Frontend: `npm run lint`, `npx tsc --noEmit`, `npm run build` all clean.
+`cd backend && pytest` — 93 tests: CORS (exact + regex), routing, telemetry, health score, faults (+API), detection (+API), RCA (+API), healing/verification/incidents (+API), AI providers (mock + mocked-HTTP Qualcomm), database round-trip, demo mode, WebSocket. Full suite ≈12 s (first run trains the model). Frontend: `npm run lint`, `npx tsc --noEmit`, `npm run build` all clean.
 
 ## Environment Variables
 
@@ -146,15 +147,15 @@ cd backend && pytest
 # Retrain detector
 cd backend && python ../scripts/train_detector.py [--save-dataset]
 
-# Docker (verified 2026-09-21: both images build, demo resolves in-container)
+# Docker (verified 2026-09-21: images build, demo resolves in-container, port change without rebuild, 127.0.0.1 access)
 docker compose up --build
-BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose up --build   # when 8000/3000 are busy
+# other ports: put BACKEND_PORT=8010 / FRONTEND_PORT=3010 in .env (or $env:BACKEND_PORT="8010" in PowerShell); no rebuild needed
 ```
 
 ## Known Issues
 
-- Port 8000 on the dev machine is used by another project (SATVA) running in Docker; use `BACKEND_PORT`/`FRONTEND_PORT` overrides for the NetMedic stack there.
-- `frontend/package-lock.json` must stay complete for Linux (regenerated inside `node:20-alpine` with `npm install --package-lock-only`); a Windows-only `npm install` can drop the `@emnapi/*` optional entries and break `npm ci` in Docker.
+- Port 8000 on the dev machine is used by another project (SATVA) running in Docker. For the compose stack set `BACKEND_PORT`/`FRONTEND_PORT` in a project-root `.env` (or `$env:BACKEND_PORT=... ` in PowerShell); for local dev run uvicorn on another port and set `NETMEDIC_BACKEND_PORT` in `frontend/.env.local`.
+- `frontend/package-lock.json` must stay complete for Linux. Toolchain is pinned to the image (`packageManager` npm@10.8.2, `.nvmrc` 20; run `corepack enable`). If another npm rewrites the lock and Docker's `npm ci` complains, regenerate inside `node:20-alpine` with `npm install --package-lock-only`.
 - Qualcomm provider untested against the real API (no credentials); request shape is an assumption.
 - Core router R1 and link GW–R1 have no redundancy by design → incidents there escalate and FAIL honestly.
 - `next dev` regenerates `frontend/AGENTS.md`/`CLAUDE.md`; keep them committed.
@@ -166,5 +167,5 @@ See `docs/demo-script.md`. Short version: backend + frontend running → dashboa
 ## Last Major Change
 
 - **Date:** 2026-09-21
-- **Description:** Docker stack verified end to end (images build, containerised demo resolves); compose ports made configurable; Linux-complete lockfile.
-- **Commit:** see `git log -1`
+- **Description:** Applied the ten findings of the xhigh code review of the Docker layer — runtime backend-URL resolution (`/api/config`), portable port overrides, loopback/LAN CORS, toolchain pin, compose/env/docs consistency. Verified: compose on 8010/3010 and then 8020/3020 without rebuild, dashboard via 127.0.0.1, local dev against port 8010.
+- **Commit:** e6baadb
