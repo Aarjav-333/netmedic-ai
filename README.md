@@ -8,7 +8,9 @@
 | **Problem Statement** | NC-04 — Self-Healing Network Simulator |
 | **Status** | Functional MVP — full Detect → Diagnose → Heal → Verify loop working end to end |
 
-![Incident resolved](docs/screenshots/incident-resolved.png)
+![NetMedic AI detecting, diagnosing, healing and verifying a router congestion fault](docs/screenshots/demo.gif)
+
+*Unedited capture: congestion injected on R4, then detect → diagnose → heal → verify. Traffic reroutes through R3 and recovery is confirmed against before/after telemetry — about 14 seconds end to end.*
 
 ---
 
@@ -37,14 +39,14 @@ and longer to diagnose. Most monitoring stops at "alert fired". NC-04 asks for a
 simulator that closes the loop: detect the fault, work out *why*, fix it, and prove it is
 fixed — visibly and in real time.
 
-## What the demo shows (≈15 s)
+## What the demo shows (≈14 s, measured)
 
 1. A healthy 10-node campus network with animated active routes.
 2. **Router R4 → Congestion → Inject Fault** (or **Run demo**).
 3. R4's latency, loss and CPU climb; the Isolation Forest confirms the anomaly on the next tick.
 4. The root-cause engine identifies *Router congestion on R4* with evidence and a 70-75 % confidence whose formula is printed.
 5. The planner simulates a reroute, confirms every affected flow has an alternative path, and the healing engine raises R4's routing cost and recomputes Dijkstra paths — Hostel and Admin traffic now flows through R3 (highlighted on the topology).
-6. After a settle period the verifier compares windows: latency 215 ms → 20 ms, loss 15.5 % → 0.7 %, health 74 → 99 — **NETWORK RECOVERED**.
+6. After a settle period the verifier compares windows — a representative run: latency 207 ms → 21 ms, loss 14.6 % → 0.6 %, health 74 → 99, all four checks passed — **NETWORK RECOVERED**.
 7. The incident, its timeline, actions and recovery report are stored in SQLite and listed in the history table.
 
 ![Incident in progress](docs/screenshots/incident-in-progress.png)
@@ -151,6 +153,8 @@ Windows: baseline (5 samples before the anomaly), before (3 samples before remed
 | Healthy network | Incident in progress | Incident resolved |
 |---|---|---|
 | ![healthy](docs/screenshots/healthy-network.png) | ![progress](docs/screenshots/incident-in-progress.png) | ![resolved](docs/screenshots/incident-resolved.png) |
+
+Telemetry is deliberately unseeded in normal runs, so exact figures move a little between runs; set `NETMEDIC_RANDOM_SEED` to make a run reproducible.
 
 ## Setup
 
