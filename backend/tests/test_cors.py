@@ -3,8 +3,16 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import Settings
+from app.config import Settings, configure_settings, get_settings
 from app.main import create_app
+
+
+@pytest.fixture(autouse=True)
+def _restore_settings():
+    """create_app(settings) installs them process-wide; put the previous value back."""
+    previous = configure_settings(None)
+    yield
+    configure_settings(previous)
 
 # The pattern docker-compose ships: loopback / private / .local hosts on the dashboard port.
 PRIVATE_HOSTS = (
@@ -22,9 +30,12 @@ def make_client(**overrides) -> TestClient:
     return TestClient(create_app(Settings(auto_tick=False, **overrides)))
 
 
+def preflight(client: TestClient, origin: str):
+    return client.options("/api/health", headers={"Origin": origin, "Access-Control-Request-Method": "GET"})
+
+
 def allowed(client: TestClient, origin: str) -> bool:
-    res = client.options("/api/health", headers={"Origin": origin, "Access-Control-Request-Method": "GET"})
-    return res.headers.get("access-control-allow-origin") == origin
+    return preflight(client, origin).headers.get("access-control-allow-origin") == origin
 
 
 def test_default_origins_cover_loopback_only():
@@ -53,6 +64,22 @@ def test_shipped_regex_allows_private_hosts_but_not_the_public_internet():
         assert not allowed(client, origin), origin
 
 
+def test_cors_never_allows_credentials():
+    """The API has no auth and the shipped regex covers a whole private range; echoing
+    credentials back to those origins would let a LAN page act as the signed-in user."""
+    client = make_client(cors_origin_regex=PRIVATE_HOSTS)
+    for origin in ("http://localhost:3000", "http://10.0.0.5:3000"):
+        res = preflight(client, origin)
+        assert res.headers.get("access-control-allow-origin") == origin
+        assert "access-control-allow-credentials" not in res.headers
+
+
+def test_explicit_settings_reach_components_resolved_later():
+    """create_app(settings) must not log one config while the engine runs another."""
+    create_app(Settings(auto_tick=False, tick_seconds=0.25, ai_provider="mock"))
+    assert get_settings().tick_seconds == 0.25
+
+
 def test_settings_origin_check_matches_middleware():
     settings = Settings(auto_tick=False, cors_origins="http://localhost:3000", cors_origin_regex=PRIVATE_HOSTS)
     assert settings.is_allowed_origin("http://localhost:3000")
@@ -63,14 +90,18 @@ def test_settings_origin_check_matches_middleware():
 
 @pytest.mark.parametrize("origin", ["http://evil.example:3000", "http://1.2.3.4:3000"])
 def test_websocket_rejects_disallowed_origin(origin):
-    """The stream carries more than any REST route; it must honour the same allow-list."""
+    """The stream carries more than any REST route; it must honour the same allow-list.
+
+    The handshake is refused before `accept()`. TestClient surfaces that as a 1008 close;
+    under uvicorn the same refusal becomes an HTTP 403 handshake rejection, which a browser
+    reports as close code 1006 - so assert the refusal, not a code clients never see.
+    """
     from starlette.websockets import WebSocketDisconnect
 
     client = make_client(cors_origin_regex=PRIVATE_HOSTS)
-    with pytest.raises(WebSocketDisconnect) as excinfo:
+    with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/ws/network", headers={"Origin": origin}) as ws:
             ws.receive_json()
-    assert excinfo.value.code == 1008
 
 
 def test_websocket_accepts_allowed_and_header_less_clients(engine):

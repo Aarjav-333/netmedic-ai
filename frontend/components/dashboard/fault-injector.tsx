@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Loader2, RotateCcw, Syringe, X, Zap } from "lucide-react";
 import { DemoControl } from "@/components/dashboard/demo-control";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useBackendResource } from "@/hooks/use-backend-resource";
 import { ApiError, clearFault, getFaults, injectFault, resetSimulation } from "@/lib/api";
 import { formatTime } from "@/lib/status";
 import type { ActiveFault, DemoState, FaultDefinition, FaultType, Severity, Topology } from "@/lib/types";
@@ -29,29 +30,19 @@ export function FaultInjector({
   onReset?: () => void;
   disabled?: boolean;
 }) {
-  const [catalog, setCatalog] = useState<FaultDefinition[]>([]);
   const [target, setTarget] = useState("R4");
   const [faultType, setFaultType] = useState<FaultType>("router_congestion");
   const [severity, setSeverity] = useState<Severity>("medium");
   const [busy, setBusy] = useState<"inject" | "reset" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Load once the stream is live: before that the backend address may still be the
-  // location-derived guess, and a one-shot load would leave the catalog empty for good.
-  useEffect(() => {
-    if (disabled || catalog.length > 0) return;
-    let cancelled = false;
-    getFaults()
-      .then((res) => {
-        if (!cancelled) setCatalog(res.catalog);
-      })
-      .catch(() => {
-        /* retried when the connection next comes up */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [disabled, catalog.length]);
+  // Load once the stream is live - before that the backend address may still be the
+  // location-derived guess - and keep retrying until the catalog actually arrives.
+  const loadCatalog = useCallback(() => getFaults().then((res) => res.catalog), []);
+  const { items: catalog, pending: catalogPending } = useBackendResource<FaultDefinition>(
+    loadCatalog,
+    !disabled,
+  );
 
   const targetNode = topology?.nodes.find((n) => n.id === target) ?? null;
   const targetLink = topology?.links.find((l) => l.id === target) ?? null;
@@ -194,6 +185,9 @@ export function FaultInjector({
           </Button>
         </div>
 
+        {catalogPending && (
+          <p className="text-xs text-muted-foreground">Loading fault catalogue from the backend…</p>
+        )}
         {error && <p className="text-xs text-status-critical">{error}</p>}
 
         {activeFaults.length > 0 && (

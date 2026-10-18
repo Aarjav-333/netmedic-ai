@@ -210,3 +210,21 @@ def test_mild_transient_anomaly_does_not_open_incident(engine):
     assert manager.active is None
     assert incident.status == IncidentStatus.CANCELLED
     assert "Transient" in incident.timeline[-1].message
+
+
+def test_engine_listeners_are_not_duplicated(engine):
+    """The engine is a singleton: repeated app startups must not stack broadcasters."""
+    calls: list[int] = []
+
+    async def listener(_message):
+        calls.append(1)
+
+    engine.subscribe(listener)
+    engine.subscribe(listener)  # idempotent
+    import asyncio
+
+    asyncio.run(engine.publish())
+    assert len(calls) == 1
+    engine.unsubscribe(listener)
+    asyncio.run(engine.publish())
+    assert len(calls) == 1

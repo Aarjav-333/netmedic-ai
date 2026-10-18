@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # Disable the background loop (tests drive the engine tick-by-tick).
     auto_tick: bool = True
 
+    # Telemetry RNG seed. Unset in production so each run looks different; the test suite
+    # pins it so detection assertions ("no false positives") are reproducible rather than
+    # a dice roll on the noise draw.
+    random_seed: int | None = None
+
     # Persistence
     database_url: str = "sqlite:///./data/netmedic.db"
 
@@ -86,8 +91,29 @@ class QualcommSettings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
+def _load_settings() -> Settings:
     return Settings()
+
+
+_settings_override: Settings | None = None
+
+
+def get_settings() -> Settings:
+    """Process settings: an explicit override if one is installed, else the environment."""
+    return _settings_override if _settings_override is not None else _load_settings()
+
+
+def configure_settings(settings: Settings | None) -> Settings | None:
+    """Install process-wide settings and return the previous override so callers can restore.
+
+    `create_app(settings)` uses this so components resolved *afterwards* (the engine, the AI
+    provider) agree with the app's own config. A component already constructed keeps the
+    settings it was built with - `get_engine()` is an lru_cache singleton.
+    """
+    global _settings_override
+    previous = _settings_override
+    _settings_override = settings
+    return previous
 
 
 @lru_cache

@@ -1,34 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Loader2, Play, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useBackendResource } from "@/hooks/use-backend-resource";
 import { ApiError, getDemoScenarios, runDemo, stopDemo, type DemoScenario } from "@/lib/api";
 import type { DemoState } from "@/lib/types";
 
 export function DemoControl({ demo, disabled }: { demo: DemoState | null; disabled?: boolean }) {
-  const [scenarios, setScenarios] = useState<DemoScenario[]>([]);
   const [scenario, setScenario] = useState("congestion");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const running = demo?.running ?? false;
 
-  // Same as the fault catalog: wait for a live connection, retry if it comes back empty.
-  useEffect(() => {
-    if (disabled || scenarios.length > 0) return;
-    let cancelled = false;
-    getDemoScenarios()
-      .then((list) => {
-        if (!cancelled) setScenarios(list);
-      })
-      .catch(() => {
-        /* retried when the connection next comes up */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [disabled, scenarios.length]);
+  // Same as the fault catalogue: wait for a live connection, then retry until it arrives.
+  // `getDemoScenarios` is module-level, so the reference is already stable.
+  const { items: scenarios, pending: scenariosPending } = useBackendResource<DemoScenario>(
+    getDemoScenarios,
+    !disabled,
+  );
 
   const start = async () => {
     setBusy(true);
@@ -84,6 +75,8 @@ export function DemoControl({ demo, disabled }: { demo: DemoState | null; disabl
       <p className="text-[11px] leading-snug text-muted-foreground">
         {running && demo
           ? `Step ${demo.step}/${demo.total_steps} · ${demo.message}`
+          : scenariosPending
+            ? "Loading demo scenarios from the backend…"
           : demo?.outcome
             ? demo.message
             : (selected?.description ?? "Scripted scenario that drives the real detect → diagnose → heal → verify pipeline.")}

@@ -19,7 +19,7 @@ from app.api.network import router as network_router
 from app.api.telemetry import router as telemetry_router
 from app.api.ws import manager as ws_manager
 from app.api.ws import router as ws_router
-from app.config import Settings, get_settings
+from app.config import Settings, configure_settings, get_settings
 from app.engine import get_engine
 from app.logging_config import configure_logging, get_logger
 
@@ -40,11 +40,17 @@ async def lifespan(app: FastAPI):
     if settings.auto_tick:
         await engine.start()
     yield
+    engine.unsubscribe(ws_manager.broadcast)
     await engine.stop()
     log.info("[SHUTDOWN] NetMedic AI backend stopped")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    if settings is not None:
+        # Install process-wide so the engine and AI provider resolved later agree with this
+        # app; otherwise they would silently fall back to the environment. See
+        # configure_settings() for the one caveat (an already-built engine keeps its own).
+        configure_settings(settings)
     settings = settings or get_settings()
     app = FastAPI(
         title="NetMedic AI",

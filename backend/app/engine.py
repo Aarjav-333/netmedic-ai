@@ -42,11 +42,17 @@ StateListener = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class SimulationEngine:
-    def __init__(self, tick_seconds: float = 1.5, database_url: str | None = None) -> None:
+    def __init__(
+        self,
+        tick_seconds: float = 1.5,
+        database_url: str | None = None,
+        random_seed: int | None = None,
+    ) -> None:
         self.tick_seconds = tick_seconds
+        seed = random_seed if random_seed is not None else get_settings().random_seed
         self.db: Database | None = Database(database_url) if database_url else None
         self.network = NetworkSimulator()
-        self.telemetry = TelemetryGenerator(self.network)
+        self.telemetry = TelemetryGenerator(self.network, seed=seed)
         self.faults = FaultInjector(self.network)
         self.detector = AnomalyDetector(self.network)
         self.detection: DetectionResult | None = None
@@ -225,7 +231,14 @@ class SimulationEngine:
 
     # ----------------------------------------------------------- publish
     def subscribe(self, listener: StateListener) -> None:
-        self._listeners.append(listener)
+        """Idempotent: the engine is a singleton, so repeated app startups must not
+        stack duplicate listeners and broadcast every tick twice."""
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def unsubscribe(self, listener: StateListener) -> None:
+        if listener in self._listeners:
+            self._listeners.remove(listener)
 
     def state_message(self) -> dict[str, Any]:
         """Everything the dashboard needs, serialised as JSON-ready primitives."""
@@ -278,4 +291,8 @@ class SimulationEngine:
 @lru_cache
 def get_engine() -> SimulationEngine:
     settings = get_settings()
-    return SimulationEngine(tick_seconds=settings.tick_seconds, database_url=settings.database_url)
+    return SimulationEngine(
+        tick_seconds=settings.tick_seconds,
+        database_url=settings.database_url,
+        random_seed=settings.random_seed,
+    )

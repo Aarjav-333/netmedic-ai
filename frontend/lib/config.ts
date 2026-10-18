@@ -7,9 +7,10 @@
  *   3. derived     window.location + the backend port
  *
  * `apiBaseUrl` comes from the first tier that sets it. `wsUrl` is taken from an explicit
- * value only when that value sits in the *same or a more specific* tier than the chosen
- * API base; otherwise it is derived from the API base. That pairing rule is what stops a
- * build-time API override and a runtime-only WS override from pointing at different hosts.
+ * value only when it sits in the *same* tier as the chosen API base; otherwise it is derived
+ * from that base (and the ignored override is warned about). Pairing them by tier is what
+ * stops a build-time override on one field and a runtime override on the other from leaving
+ * REST and the stream pointing at different hosts - in either direction.
  *
  * Malformed values (wrong scheme, unparseable URL, out-of-range port) are rejected with a
  * console warning and fall back to the next tier, so a typo degrades to the derived default
@@ -102,6 +103,8 @@ function apiBaseFromLocation(port: number): string {
 const BUILD_API = normalizeApiBase(process.env.NEXT_PUBLIC_API_BASE_URL, "NEXT_PUBLIC_API_BASE_URL");
 const BUILD_WS = normalizeWsUrl(process.env.NEXT_PUBLIC_WS_URL, "NEXT_PUBLIC_WS_URL");
 
+const TIER_NAMES = ["NEXT_PUBLIC_* (build time)", "/api/config (runtime)", "window.location"] as const;
+
 function build(runtime: RuntimeConfig | null): BackendConfig {
   const port = parsePort(runtime?.backendPort);
   const tiers: { api: string | null; ws: string | null }[] = [
@@ -115,7 +118,14 @@ function build(runtime: RuntimeConfig | null): BackendConfig {
   const apiTier = tiers.findIndex((t) => t.api !== null);
   const wsTier = tiers.findIndex((t) => t.ws !== null);
   const apiBaseUrl = tiers[apiTier].api as string;
-  const explicitWs = wsTier !== -1 && wsTier <= apiTier ? tiers[wsTier].ws : null;
+  if (wsTier !== -1 && wsTier !== apiTier) {
+    warn(
+      `Ignoring the WebSocket URL override: the API base comes from a different source ` +
+        `(${TIER_NAMES[apiTier]}), so the stream is derived from it to keep both on one host. ` +
+        `Set both in ${TIER_NAMES[wsTier]} to override the pair.`,
+    );
+  }
+  const explicitWs = wsTier === apiTier ? tiers[wsTier].ws : null;
   return { apiBaseUrl, wsUrl: explicitWs ?? wsUrlFor(apiBaseUrl) };
 }
 
@@ -161,9 +171,4 @@ export function getBackendConfig(): Promise<BackendConfig> {
       inFlight = null;
     });
   return inFlight;
-}
-
-/** True once /api/config has answered; panels use it to retry one-shot loads. */
-export function isBackendConfigResolved(): boolean {
-  return resolved !== null;
 }
