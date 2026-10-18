@@ -169,7 +169,7 @@ Copy `.env.example` to `.env` and adjust if needed. Defaults work out of the box
 | `NETMEDIC_TICK_SECONDS` | telemetry/pipeline tick (default 1.5) |
 | `NETMEDIC_DATABASE_URL` | SQLite URL (default `sqlite:///./data/netmedic.db`, relative to `backend/`) |
 | `BACKEND_PORT` / `FRONTEND_PORT` | host ports used by `docker compose` (default 8000 / 3000) |
-| `NETMEDIC_CORS_ORIGINS` / `NETMEDIC_CORS_ORIGIN_REGEX` | allowed dashboard origins (defaults cover localhost, 127.0.0.1 and any host on the dashboard port) |
+| `NETMEDIC_CORS_ORIGINS` / `NETMEDIC_CORS_ORIGIN_REGEX` | allowed dashboard origins, applied to REST **and** the WebSocket handshake. Backend default: loopback only. Compose additionally allows private/`.local` hosts on the dashboard port for LAN demos — the API has no auth, so never widen this to any host |
 | `NETMEDIC_AI_PROVIDER` | `mock` (default) or `qualcomm` |
 | `QUALCOMM_AI_BASE_URL` / `QUALCOMM_AI_API_KEY` / `QUALCOMM_AI_MODEL` | Qualcomm Cloud AI Playground details supplied by you (see `backend/app/ai/qualcomm.py` for the documented request-shape assumption) |
 | `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_WS_URL` | optional overrides; by default the browser derives the backend address from its own location and the backend port at runtime |
@@ -221,7 +221,7 @@ $env:BACKEND_PORT = "8010"; $env:FRONTEND_PORT = "3010"; docker compose up --bui
 BACKEND_PORT=8010 FRONTEND_PORT=3010 docker compose up --build                     # bash / zsh
 ```
 
-Nothing host-specific is baked into the images: the frontend container tells the browser the backend port at runtime (`/api/config`), so changing ports never needs a rebuild and the dashboard works from `localhost`, `127.0.0.1` or a LAN address alike. The backend trains the detector on first boot (10–20 s, covered by the healthcheck's `start_period`); the SQLite database and model live in the `netmedic-data` volume.
+Nothing host-specific is baked into the images: the frontend container tells the browser the backend port at runtime (`/api/config`), so changing ports never needs a rebuild and the dashboard works from `localhost`, `127.0.0.1` or a private LAN address alike (public hosts are refused — see the CORS note above). The backend trains the detector on first boot (10–20 s, covered by the healthcheck's `start_period`); the SQLite database and model live in the `netmedic-data` volume.
 
 ## Demo Workflow
 

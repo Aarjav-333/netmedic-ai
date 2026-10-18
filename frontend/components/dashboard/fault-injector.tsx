@@ -36,11 +36,22 @@ export function FaultInjector({
   const [busy, setBusy] = useState<"inject" | "reset" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Load once the stream is live: before that the backend address may still be the
+  // location-derived guess, and a one-shot load would leave the catalog empty for good.
   useEffect(() => {
+    if (disabled || catalog.length > 0) return;
+    let cancelled = false;
     getFaults()
-      .then((res) => setCatalog(res.catalog))
-      .catch(() => setCatalog([]));
-  }, []);
+      .then((res) => {
+        if (!cancelled) setCatalog(res.catalog);
+      })
+      .catch(() => {
+        /* retried when the connection next comes up */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [disabled, catalog.length]);
 
   const targetNode = topology?.nodes.find((n) => n.id === target) ?? null;
   const targetLink = topology?.links.find((l) => l.id === target) ?? null;

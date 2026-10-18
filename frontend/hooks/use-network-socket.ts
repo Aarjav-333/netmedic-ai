@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getBackendConfig } from "@/lib/config";
 import type { MetricPoint, StateMessage, TelemetrySnapshot } from "@/lib/types";
 
@@ -43,7 +43,6 @@ export function useNetworkSocket() {
   const [state, setState] = useState<StateMessage | null>(null);
   const [history, setHistory] = useState<MetricPoint[]>([]);
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
-  const attemptRef = useRef(0);
 
   const backfill = useCallback(async () => {
     try {
@@ -65,23 +64,45 @@ export function useNetworkSocket() {
   }, []);
 
   useEffect(() => {
-    // Per-run state: `connect` awaits the backend config, so a fast unmount/remount
-    // (React Strict Mode, HMR) can resume an old run after a new one has started. A
-    // shared ref would let the old run open a second, orphaned socket.
+    // Everything here is per-run: `connect` awaits the backend config, so a fast
+    // unmount/remount (React Strict Mode, HMR) can resume an old run after a new one has
+    // started. Shared state would let the old run open a second socket, and a shared
+    // backoff counter would make a fresh mount start mid-ramp.
     let cancelled = false;
     let socket: WebSocket | null = null;
+    let attempt = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    const connect = async () => {
+    // Declared as hoisted functions so the two can reference each other.
+    function scheduleRetry() {
       if (cancelled) return;
-      setStatus(attemptRef.current === 0 ? "connecting" : "reconnecting");
+      attempt += 1;
+      setStatus("offline");
+      const delay = Math.min(MAX_BACKOFF_MS, 500 * 2 ** Math.min(attempt, 4));
+      retryTimer = setTimeout(() => void connect(), delay);
+    }
+
+    async function connect() {
+      if (cancelled) return;
+      setStatus(attempt === 0 ? "connecting" : "reconnecting");
       const { wsUrl } = await getBackendConfig();
       if (cancelled) return;
-      const ws = new WebSocket(wsUrl);
+
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (error) {
+        // A bad scheme or a mixed-content URL throws right here. Without this catch the
+        // rejection is swallowed by the caller's `void connect()`, no socket exists so
+        // `onclose` never fires, and the dashboard stays on "connecting" forever.
+        console.warn(`[netmedic] Could not open ${wsUrl}:`, error);
+        scheduleRetry();
+        return;
+      }
       socket = ws;
 
       ws.onopen = () => {
-        attemptRef.current = 0;
+        attempt = 0;
         setStatus("connected");
         void backfill();
       };
@@ -105,18 +126,14 @@ export function useNetworkSocket() {
       };
 
       ws.onclose = () => {
-        if (socket === ws) socket = null;
-        if (cancelled) return;
-        attemptRef.current += 1;
-        setStatus("offline");
-        const delay = Math.min(MAX_BACKOFF_MS, 500 * 2 ** Math.min(attemptRef.current, 4));
-        retryTimer = setTimeout(() => void connect(), delay);
+        socket = null;
+        scheduleRetry();
       };
 
       ws.onerror = () => {
         ws.close();
       };
-    };
+    }
 
     void connect();
 

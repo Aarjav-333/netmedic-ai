@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.config import Settings, get_settings
 from app.engine import get_engine
 from app.logging_config import get_logger
 
@@ -53,6 +54,17 @@ manager = ConnectionManager()
 
 @router.websocket("/ws/network")
 async def network_stream(websocket: WebSocket) -> None:
+    settings: Settings = getattr(websocket.app.state, "settings", None) or get_settings()
+    origin = websocket.headers.get("origin")
+    # A WebSocket handshake is exempt from the CORS preflight, and this stream carries more
+    # than any REST route (topology, telemetry, diagnoses, incident history). Without this
+    # check the CORS allow-list would protect the narrow surface and leave the wide one open
+    # to any page on the internet. A missing Origin means a non-browser client (curl, tests),
+    # which could forge the header anyway, so it is let through.
+    if origin is not None and not settings.is_allowed_origin(origin):
+        log.warning("[WS] Rejected handshake from disallowed origin %s", origin)
+        await websocket.close(code=1008)
+        return
     engine = get_engine()
     await manager.connect(websocket)
     try:

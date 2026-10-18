@@ -19,7 +19,7 @@ from app.api.network import router as network_router
 from app.api.telemetry import router as telemetry_router
 from app.api.ws import manager as ws_manager
 from app.api.ws import router as ws_router
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.engine import get_engine
 from app.logging_config import configure_logging, get_logger
 
@@ -30,7 +30,9 @@ APP_VERSION = "0.8.0"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings()
+    # Read from app.state, not get_settings(), so an app built with explicit settings
+    # (tests) keeps them through startup instead of silently reloading the real config.
+    settings: Settings = app.state.settings
     configure_logging(settings.log_level)
     log.info("[STARTUP] NetMedic AI backend v%s starting (tick=%ss)", APP_VERSION, settings.tick_seconds)
     engine = get_engine()
@@ -42,20 +44,21 @@ async def lifespan(app: FastAPI):
     log.info("[SHUTDOWN] NetMedic AI backend stopped")
 
 
-def create_app() -> FastAPI:
-    settings = get_settings()
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or get_settings()
     app = FastAPI(
         title="NetMedic AI",
         description="Autonomous Network Detection, Diagnosis & Self-Healing Platform",
         version=APP_VERSION,
         lifespan=lifespan,
     )
+    app.state.settings = settings
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
         allow_origin_regex=settings.cors_origin_regex or None,
-        # No cookies or auth headers are used, so credentialed CORS would only widen what
-        # the any-host-on-the-dashboard-port regex allows.
+        # No cookies or auth headers are in play, so credentials are off; the protection
+        # that matters is keeping the origin list narrow (see Settings.cors_origins).
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],

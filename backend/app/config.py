@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -35,9 +36,12 @@ class Settings(BaseSettings):
     # Persistence
     database_url: str = "sqlite:///./data/netmedic.db"
 
-    # CORS: exact origins (comma-separated) plus an optional regex (full-matched), e.g. ^https?://[^/]+:3000
-    # so the dashboard works from localhost, 127.0.0.1 or a LAN address on the same port.
-    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # CORS. The API has no authentication, so any allowed origin can both read telemetry
+    # and drive the simulation (inject faults, reset, toggle healing). Keep the allow-list
+    # as narrow as the demo needs: exact origins by default, plus an optional full-matched
+    # regex for LAN demos. Never widen the regex to `^https?://[^/]+:<port>` - that lets any
+    # site served on that port drive this API from a victim's browser.
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://[::1]:3000"
     cors_origin_regex: str | None = None
 
     # AI explanation provider
@@ -46,6 +50,14 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        """Same rule the CORS middleware applies, reused for the WebSocket handshake."""
+        if "*" in self.cors_origin_list or origin in self.cors_origin_list:
+            return True
+        if self.cors_origin_regex:
+            return re.fullmatch(self.cors_origin_regex, origin) is not None
+        return False
 
 
 class QualcommSettings(BaseSettings):

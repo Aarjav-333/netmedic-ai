@@ -14,11 +14,21 @@ export function DemoControl({ demo, disabled }: { demo: DemoState | null; disabl
   const [error, setError] = useState<string | null>(null);
   const running = demo?.running ?? false;
 
+  // Same as the fault catalog: wait for a live connection, retry if it comes back empty.
   useEffect(() => {
+    if (disabled || scenarios.length > 0) return;
+    let cancelled = false;
     getDemoScenarios()
-      .then(setScenarios)
-      .catch(() => setScenarios([]));
-  }, []);
+      .then((list) => {
+        if (!cancelled) setScenarios(list);
+      })
+      .catch(() => {
+        /* retried when the connection next comes up */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [disabled, scenarios.length]);
 
   const start = async () => {
     setBusy(true);

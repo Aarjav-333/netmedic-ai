@@ -7,8 +7,10 @@ services:
     container_name: netmedic-backend
     environment:
       NETMEDIC_CORS_ORIGINS: ${NETMEDIC_CORS_ORIGINS:-http://localhost:${FRONTEND_PORT:-3000},http://127.0.0.1:${FRONTEND_PORT:-3000}}
-      # Any host on the dashboard port (LAN address, port-forward) is also allowed.
-      NETMEDIC_CORS_ORIGIN_REGEX: ${NETMEDIC_CORS_ORIGIN_REGEX:-^https?://[^/]+:${FRONTEND_PORT:-3000}}
+      # LAN demos (phone, second laptop) need more than localhost, but the API has no auth,
+      # so this is limited to loopback/private/.local hosts on the dashboard port rather than
+      # any host - a page served on that port from the public internet must not drive it.
+      NETMEDIC_CORS_ORIGIN_REGEX: '${NETMEDIC_CORS_ORIGIN_REGEX:-https?://(localhost|\[::1\]|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|[A-Za-z0-9-]+\.local):${FRONTEND_PORT:-3000}}'
       NETMEDIC_TICK_SECONDS: ${NETMEDIC_TICK_SECONDS:-1.5}
       NETMEDIC_AI_PROVIDER: ${NETMEDIC_AI_PROVIDER:-mock}
       QUALCOMM_AI_BASE_URL: ${QUALCOMM_AI_BASE_URL:-}
