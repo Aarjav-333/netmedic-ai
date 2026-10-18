@@ -16,7 +16,7 @@ from app.healing.engine import HealingEngine
 from app.healing.verifier import SETTLE_TICKS, WINDOW_TICKS, summarise_window, verify
 from app.logging_config import get_logger
 from app.models.detection import ComponentKind, DetectionResult
-from app.models.diagnosis import ActionType, Diagnosis
+from app.models.diagnosis import ActionType, Diagnosis, RootCause
 from app.models.incident import (
     STATUS_LABEL,
     HealingActionRecord,
@@ -193,7 +193,11 @@ class IncidentManager:
             self._transition(incident, IncidentStatus.ANALYZING, tick, f"Analysing telemetry and topology ({flagged} component(s) flagged)")
 
         elif status == IncidentStatus.ANALYZING:
-            if diagnosis is not None:
+            # An UNKNOWN cause means the scoring engine declined to commit, so there is no
+            # action to take. Keep observing instead of marching it through REMEDIATING to
+            # a red FAILED: detector noise should close as CANCELLED when it clears, and
+            # only a *persisting* unclassified anomaly is worth escalating.
+            if diagnosis is not None and diagnosis.root_cause != RootCause.UNKNOWN:
                 self._apply_diagnosis(incident, diagnosis, tick)
             elif tick - self._stage_tick >= DIAGNOSIS_TIMEOUT_TICKS:
                 still_flagged = any(a.component_id == incident.component_id for a in detection.anomalies)

@@ -64,10 +64,25 @@ export function IncidentHistory({
                   return (
                     <tr
                       key={i.id}
-                      className={`cursor-pointer border-b border-border/40 transition-colors hover:bg-muted/40 ${selected ? "bg-muted/50" : ""}`}
+                      className={`border-b border-border/40 transition-colors hover:bg-muted/40 has-focus-visible:bg-muted/50 ${selected ? "bg-muted/50" : ""}`}
                       onClick={() => onSelect(selected ? null : i.id)}
                     >
-                      <td className="px-4 py-1.5 tabular-nums">{formatTime(i.detected_at)}</td>
+                      {/* The row stays clickable for the mouse, but selection lives on a real
+                          button so it is reachable by keyboard and announced as pressed. */}
+                      <td className="px-4 py-1.5 tabular-nums">
+                        <button
+                          type="button"
+                          aria-pressed={selected}
+                          aria-label={`Review incident on ${i.component_id} detected at ${formatTime(i.detected_at)}`}
+                          className="cursor-pointer rounded-sm underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onSelect(selected ? null : i.id);
+                          }}
+                        >
+                          {formatTime(i.detected_at)}
+                        </button>
+                      </td>
                       <td className="px-2 py-1.5 font-medium">{i.component_id}</td>
                       <td className="px-2 py-1.5">{i.root_cause_label ?? "—"}</td>
                       <td className="px-2 py-1.5 tabular-nums">{i.confidence === null ? "—" : `${Math.round(i.confidence * 100)}%`}</td>

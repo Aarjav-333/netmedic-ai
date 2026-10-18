@@ -228,3 +228,53 @@ def test_engine_listeners_are_not_duplicated(engine):
     engine.unsubscribe(listener)
     asyncio.run(engine.publish())
     assert len(calls) == 1
+
+
+def test_unclassified_anomaly_closes_as_transient_not_failed(engine):
+    """Detector noise the RCA cannot classify must not surface as RECOVERY FAILED:
+    nothing was attempted, so it closes as CANCELLED once the blip clears."""
+    from datetime import datetime, timezone
+
+    from app.models.detection import ComponentAnomaly, ComponentKind, DetectionResult
+    from app.models.diagnosis import ROOT_CAUSE_LABEL, Diagnosis, RemediationPlan, RiskLevel, RootCause
+    from app.models.diagnosis import ActionType as A
+
+    engine.reset()
+    for _ in range(3):
+        engine.tick()
+    manager = engine.incidents
+    snapshot = engine.latest
+    now = datetime.now(timezone.utc)
+
+    def detection(ticks: int) -> DetectionResult:
+        return DetectionResult(
+            tick=engine.tick_count, timestamp=now,
+            anomalies=[ComponentAnomaly(
+                component_id="R3", component_kind=ComponentKind.NODE, method="isolation_forest",
+                decision_score=-0.05, severity=57.0, is_anomaly=True, confirmed=True, consecutive_ticks=ticks)],
+            node_scores={"R3": 57.0}, confirmed_ids=["R3"],
+        )
+
+    unknown = Diagnosis(
+        tick=engine.tick_count, timestamp=now, root_cause=RootCause.UNKNOWN,
+        root_cause_label=ROOT_CAUSE_LABEL[RootCause.UNKNOWN], target_id="R3",
+        target_kind=ComponentKind.NODE, confidence=0.17, confidence_explanation="below threshold",
+        evidence=["unclear"], affected_flows=[], affected_components=["R3"], hypotheses=[],
+        anomaly_severity=57.0,
+        plan=RemediationPlan(action=A.MONITOR, target_id="R3", target_kind=ComponentKind.NODE,
+                             summary="Keep monitoring R3", rationale="signature unclear",
+                             risk=RiskLevel.LOW, expected_outcome="no change"),
+    )
+
+    manager.process(engine.tick_count, snapshot, detection(2), unknown)
+    assert manager.active is not None
+    manager.process(engine.tick_count + 1, snapshot, detection(3), unknown)
+    # Still observing - never promoted to a remediation it cannot perform.
+    assert manager.active.status == IncidentStatus.ANALYZING
+    assert not manager.active.actions
+
+    empty = DetectionResult(tick=engine.tick_count, timestamp=now, anomalies=[], node_scores={}, confirmed_ids=[])
+    for t in range(2, 9):
+        manager.process(engine.tick_count + t, snapshot, empty, None)
+    assert manager.active is None
+    assert engine.incidents.closed[0].status == IncidentStatus.CANCELLED
