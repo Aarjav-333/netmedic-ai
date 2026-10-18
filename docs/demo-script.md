@@ -7,6 +7,7 @@ Target length: 3–4 minutes. Everything below is driven by the real pipeline; n
 ## Before the session
 
 1. `cd backend && .venv\Scripts\activate && uvicorn app.main:app --port 8000` — wait for `[ENGINE] Tick loop started`.
+   *On this machine port 8000 is taken by the SATVA stack, so use `--port 8010`; `frontend/.env.local` already pins `NETMEDIC_BACKEND_PORT=8010` and the dashboard picks it up at runtime.*
 2. `cd frontend && npm run dev` — open http://localhost:3000, check the top-right pill says **Live**.
 3. Press **Reset** once so the topology shows primary routes and health ≈ 100.
 4. Keep the backend terminal visible on a second screen: the `[DETECTION] / [DIAGNOSIS] / [HEALING] / [VERIFY]` lines are part of the story.
