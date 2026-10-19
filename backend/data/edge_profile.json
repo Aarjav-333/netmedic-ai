@@ -1,0 +1,87 @@
+{
+  "generated_at": "2026-10-19T04:15:40.725942+00:00",
+  "model": {
+    "architecture": "7-16-3-16-7 autoencoder",
+    "features": [
+      "latency_ratio",
+      "packet_loss_percent",
+      "throughput_ratio",
+      "bandwidth_utilization_percent",
+      "cpu_percent",
+      "memory_percent",
+      "connections_ratio"
+    ],
+    "parameters": 362,
+    "training_samples": 24000,
+    "threshold": 0.58302,
+    "threshold_quantile": 0.995,
+    "standardiser": {
+      "mean": [
+        0.9975112080574036,
+        0.17733334004878998,
+        0.26708704233169556,
+        26.75639533996582,
+        26.582658767700195,
+        40.8948860168457,
+        0.8588953614234924
+      ],
+      "scale": [
+        0.1007523164153099,
+        0.07301878184080124,
+        0.12411583214998245,
+        12.433686256408691,
+        7.490651607513428,
+        3.4085781574249268,
+        0.10197827219963074
+      ]
+    }
+  },
+  "validation": {
+    "healthy_false_positive_rate": 0.0,
+    "healthy_samples": 400,
+    "faults": {
+      "router_congestion@R4": {
+        "reconstruction_error": 62.25262,
+        "threshold": 0.58302,
+        "detected": true,
+        "isolation_forest_detected": true,
+        "agrees_with_isolation_forest": true
+      },
+      "node_overload@R2": {
+        "reconstruction_error": 24.6688,
+        "threshold": 0.58302,
+        "detected": true,
+        "isolation_forest_detected": true,
+        "agrees_with_isolation_forest": true
+      },
+      "traffic_spike@SW3": {
+        "reconstruction_error": 437.19574,
+        "threshold": 0.58302,
+        "detected": true,
+        "isolation_forest_detected": true,
+        "agrees_with_isolation_forest": true
+      },
+      "router_congestion@R1": {
+        "reconstruction_error": 79.13605,
+        "threshold": 0.58302,
+        "detected": true,
+        "isolation_forest_detected": true,
+        "agrees_with_isolation_forest": true
+      }
+    },
+    "detects_every_fault": true,
+    "agrees_with_isolation_forest": true
+  },
+  "deployment": {
+    "device": "Samsung Galaxy S25 (Family)",
+    "runtime": "tflite",
+    "compile_job_url": "https://app.aihub.qualcomm.com/jobs/jglwdl18p/",
+    "profile_job_url": "https://app.aihub.qualcomm.com/jobs/j56oxwd05/",
+    "inference_time_us": 42,
+    "peak_memory_bytes": 113827840,
+    "first_load_time_us": 184371,
+    "layers_by_compute_unit": {
+      "NPU": 4
+    }
+  }
+}

@@ -1,7 +1,7 @@
 /** Thin typed fetch helpers for the NetMedic REST API. */
 
 import { getBackendConfig } from "@/lib/config";
-import type { ActiveFault, DemoState, FaultDefinition, Incident, InjectFaultRequest } from "@/lib/types";
+import type { ActiveFault, DemoState, EdgeProfile, FaultDefinition, Incident, InjectFaultRequest } from "@/lib/types";
 
 export class ApiError extends Error {
   constructor(
@@ -78,3 +78,6 @@ export interface DemoScenario {
 export const getDemoScenarios = () => api.get<DemoScenario[]>("/api/demo/scenarios");
 export const runDemo = (scenario: string) => api.post<DemoState>("/api/demo/run", { scenario });
 export const stopDemo = () => api.post<DemoState>("/api/demo/stop");
+
+// ---- Edge deployment ----
+export const getEdgeProfile = () => api.get<EdgeProfile | null>("/api/detection/edge");

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DiagnosisPanel } from "@/components/dashboard/diagnosis-panel";
+import { EdgeDeployment } from "@/components/dashboard/edge-deployment";
 import { FaultInjector } from "@/components/dashboard/fault-injector";
 import { HealingPanel } from "@/components/dashboard/healing-panel";
 import { IncidentHistory } from "@/components/dashboard/incident-history";
@@ -110,6 +111,7 @@ export function Dashboard() {
               onReset={handleReset}
               disabled={status !== "connected"}
             />
+            <EdgeDeployment ready={status === "connected"} />
           </div>
         </div>
 

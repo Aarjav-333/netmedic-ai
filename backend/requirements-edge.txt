@@ -1,0 +1,9 @@
+# Build-time only: training and deploying the on-device detector to Qualcomm AI Hub.
+# Deliberately NOT in requirements.txt - the backend serves the resulting JSON artefact
+# and never imports torch, so the runtime image stays small.
+#
+#   pip install -r backend/requirements-edge.txt
+#   python scripts/edge_detector.py --offline      # train + validate locally
+#   python scripts/edge_detector.py                # ...and deploy to AI Hub
+torch>=2.2          # CPU wheel is enough: pip install torch --index-url https://download.pytorch.org/whl/cpu
+qai-hub>=0.50

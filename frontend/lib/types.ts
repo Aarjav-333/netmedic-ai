@@ -446,3 +446,48 @@ export interface IncidentSummary {
   recovery_time_s: number | null;
   total_duration_s: number | null;
 }
+
+// ---- Edge deployment (Qualcomm AI Hub) ----
+export interface EdgeModelInfo {
+  architecture: string;
+  features: string[];
+  parameters: number;
+  training_samples: number;
+  threshold: number;
+  threshold_quantile: number;
+}
+
+export interface EdgeValidation {
+  healthy_false_positive_rate: number;
+  healthy_samples: number;
+  faults: Record<
+    string,
+    {
+      reconstruction_error: number;
+      threshold: number;
+      detected: boolean;
+      isolation_forest_detected: boolean | null;
+      agrees_with_isolation_forest: boolean;
+    }
+  >;
+  detects_every_fault: boolean;
+  agrees_with_isolation_forest: boolean;
+}
+
+export interface EdgeDeploymentInfo {
+  device: string;
+  runtime: string;
+  compile_job_url: string;
+  profile_job_url: string;
+  inference_time_us: number | null;
+  peak_memory_bytes: number | null;
+  first_load_time_us: number | null;
+  layers_by_compute_unit: Record<string, number>;
+}
+
+export interface EdgeProfile {
+  generated_at: string;
+  model: EdgeModelInfo;
+  validation: EdgeValidation;
+  deployment: EdgeDeploymentInfo | null;
+}

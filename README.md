@@ -76,7 +76,8 @@ flowchart TD
     IM --> HEAL[Self-Healing Engine<br/>reroute · isolate · restart · rate-limit]
     HEAL --> SIM
     IM --> VER[Recovery Verification<br/>baseline / before / after windows]
-    IM --> AI[AI Explanation<br/>Mock · Qualcomm Cloud AI Playground]
+    IM --> AI[AI Explanation<br/>Mock / OpenAI-compatible]
+    DET -.compiled + profiled.-> EDGE[Qualcomm AI Hub<br/>on-device detector · 42 us on NPU]
     IM --> DB[(SQLite<br/>incidents · actions · events · snapshots)]
     TEL & DET & RCA & IM --> WS[/WebSocket /ws/network — full state every tick/]
     WS --> UI[Next.js Dashboard<br/>React Flow · Recharts · shadcn/ui]
@@ -139,13 +140,51 @@ Windows: baseline (5 samples before the anomaly), before (3 samples before remed
 (3 samples following a 2-sample settle). Checks: affected flows healthy · health ≥ 85 · latency ≤
 1.5 × baseline + 10 ms · loss ≤ baseline + 1 %. All pass → RESOLVED; ≥ half or +10 health → PARTIALLY_RESOLVED; else FAILED.
 
+## Running the detector on Qualcomm silicon
+
+The pipeline scores telemetry with a scikit-learn Isolation Forest in the backend. A real
+deployment would score it **on the network device itself**, so the loop closes without a
+round trip to a server. Tree ensembles don't map onto an NPU, so the on-device variant is a
+compact autoencoder trained on the *same* seven normalised features and the *same* synthetic
+healthy telemetry, flagging a sample when reconstruction error exceeds a threshold calibrated
+on healthy data.
+
+`scripts/edge_detector.py` trains it, **refuses to deploy unless it detects every injectable
+fault**, then compiles and profiles it on real hardware through Qualcomm AI Hub:
+
+| | |
+|---|---|
+| Device | Samsung Galaxy S25 (Family), TFLite |
+| Model | 7-16-3-16-7 autoencoder, 362 parameters |
+| Inference | **42 us** |
+| Compute units | **4/4 layers on NPU** |
+| Validation | detects every injected fault, 0 % false positives on 400 healthy samples, agrees with the Isolation Forest on every case |
+
+```bash
+pip install -r backend/requirements-edge.txt
+export QUALCOMM_AI_HUB_TOKEN=...             # never commit it
+python scripts/edge_detector.py              # train, validate, compile, profile
+python scripts/edge_detector.py --offline    # train + validate only
+```
+
+The result is written to `backend/data/edge_profile.json`, served at `GET /api/detection/edge`
+and shown on the dashboard with links to the actual compile and profile jobs. The backend
+never imports torch and never calls AI Hub at runtime - it serves a recorded artefact, so
+nothing on that card is computed or estimated in the app.
+
+> **On the GenAI layer.** Qualcomm AI Hub optimises and profiles models for on-device
+> deployment; it does not expose a hosted LLM. The explanation layer therefore runs on
+> `MockProvider` by default, and `QualcommProvider` will drive any OpenAI-compatible
+> chat-completions endpoint the moment one is supplied - three env vars, no code change.
+
 ## Technology Stack
 
 **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS v4, shadcn/ui, React Flow (`@xyflow/react`), Recharts
 **Backend:** Python 3.11, FastAPI, Pydantic v2, Uvicorn, WebSockets
 **Simulation & ML:** NetworkX, NumPy, Pandas, scikit-learn (Isolation Forest), joblib
 **Database:** SQLite via SQLAlchemy 2
-**GenAI:** `AIExplanationProvider` abstraction — `MockProvider` (default) and `QualcommProvider` for Qualcomm Cloud AI Playground, configured only through environment variables
+**Qualcomm:** AI Hub compiles and profiles the on-device detector on real Snapdragon hardware (`scripts/edge_detector.py`)
+**GenAI:** `AIExplanationProvider` abstraction — `MockProvider` (default) and `QualcommProvider` for any OpenAI-compatible endpoint, configured only through environment variables
 **Ops:** Docker, Docker Compose, GitHub
 
 ## Screenshots
@@ -175,7 +214,8 @@ Copy `.env.example` to `.env` and adjust if needed. Defaults work out of the box
 | `BACKEND_PORT` / `FRONTEND_PORT` | host ports used by `docker compose` (default 8000 / 3000) |
 | `NETMEDIC_CORS_ORIGINS` / `NETMEDIC_CORS_ORIGIN_REGEX` | allowed dashboard origins, applied to REST **and** the WebSocket handshake. Backend default: loopback only. Compose additionally allows private/`.local` hosts on the dashboard port for LAN demos — the API has no auth, so never widen this to any host |
 | `NETMEDIC_AI_PROVIDER` | `mock` (default) or `qualcomm` |
-| `QUALCOMM_AI_BASE_URL` / `QUALCOMM_AI_API_KEY` / `QUALCOMM_AI_MODEL` | Qualcomm Cloud AI Playground details supplied by you (see `backend/app/ai/qualcomm.py` for the documented request-shape assumption) |
+| `QUALCOMM_AI_HUB_TOKEN` | Qualcomm AI Hub token, build-time only — used by `scripts/edge_detector.py` to compile/profile the on-device detector. The backend never reads it |
+| `QUALCOMM_AI_BASE_URL` / `QUALCOMM_AI_API_KEY` / `QUALCOMM_AI_MODEL` | An OpenAI-compatible chat-completions endpoint for the explanation layer (see `backend/app/ai/qualcomm.py` for the documented request shape) |
 | `NEXT_PUBLIC_API_BASE_URL` / `NEXT_PUBLIC_WS_URL` | optional overrides; by default the browser derives the backend address from its own location and the backend port at runtime |
 
 ### Backend

@@ -1,3 +1,4 @@
+from app.incidents.manager import MAX_HISTORY
 from app.models.incident import IncidentStatus
 
 
@@ -18,7 +19,9 @@ def test_incident_lifecycle_via_api(client, engine):
     assert body["recovery"]["status"] == "resolved"
     assert body["actions"][0]["route_changes"]
     summaries = client.get("/api/incidents").json()
-    assert len(summaries) == history_before + 1
+    # The in-memory list is capped at MAX_HISTORY, so once a long-lived database has
+    # accumulated that many incidents the count stops growing - the newest must still lead.
+    assert len(summaries) == min(history_before + 1, MAX_HISTORY)
     assert summaries[0]["id"] == incident_id and summaries[0]["recovery_time_s"] is not None
     assert client.get("/api/incidents/nope").status_code == 404
     with client.websocket_connect("/ws/network") as ws:
