@@ -58,7 +58,10 @@ class FlowTelemetry(BaseModel):
     latency_ms: float = Field(description="End-to-end latency along the current route")
     packet_loss_percent: float
     throughput_mbps: float
-    demand_mbps: float
+    demand_mbps: float = Field(description="Baseline demand - what this flow normally asks for")
+    offered_mbps: float = Field(
+        description="What the source is actually offering now, after any traffic spike or rate limit"
+    )
     is_primary_route: bool
     health_score: float = Field(ge=0, le=100)
 

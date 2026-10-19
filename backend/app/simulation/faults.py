@@ -79,6 +79,12 @@ OVERLOAD_LOSS_ADD = {Severity.LOW: 0.4, Severity.MEDIUM: 1.2, Severity.HIGH: 2.5
 LOSS_SPIKE_ADD = {Severity.LOW: 4.0, Severity.MEDIUM: 10.0, Severity.HIGH: 20.0}
 BANDWIDTH_MULTIPLIER = {Severity.LOW: 0.6, Severity.MEDIUM: 0.45, Severity.HIGH: 0.3}
 TRAFFIC_MULTIPLIER = {Severity.LOW: 2.0, Severity.MEDIUM: 3.0, Severity.HIGH: 4.0}
+# A bare multiplier is capacity-blind: SW4 sources one 150 Mbps flow, so 4x reached only
+# 62 % of its 1 Gbps and the 'spike' did nothing, while SW3 (450 Mbps) hit 180 %. Express
+# the spike as a target utilisation of the source instead, as router congestion already
+# does, so severity means the same thing on every switch.
+TRAFFIC_TARGET_UTIL = {Severity.LOW: 0.85, Severity.MEDIUM: 1.15, Severity.HIGH: 1.5}
+TRAFFIC_MULTIPLIER_CAP = 12.0
 
 
 @dataclass
@@ -261,12 +267,28 @@ class FaultInjector:
             elif fault.type == FaultType.BANDWIDTH_DEGRADATION:
                 fx.add_link(fault.target_id, LinkEffects(capacity_multiplier=BANDWIDTH_MULTIPLIER[sev]))
             elif fault.type == FaultType.TRAFFIC_SPIKE:
+                multiplier = self._traffic_multiplier(fault.target_id, sev)
                 for flow in self.network.flows.values():
                     if flow.source == fault.target_id:
-                        fx.add_flow(flow.id, FlowEffects(demand_multiplier=TRAFFIC_MULTIPLIER[sev]))
-                fx.add_node(fault.target_id, NodeEffects(connections_multiplier=TRAFFIC_MULTIPLIER[sev]))
+                        fx.add_flow(flow.id, FlowEffects(demand_multiplier=multiplier))
+                fx.add_node(fault.target_id, NodeEffects(connections_multiplier=multiplier))
             # LINK_FAILURE / ROUTER_FAILURE act through admin status, not effects.
         return fx
+
+    def _traffic_multiplier(self, node_id: str, severity: Severity) -> float:
+        """Scale the spike so it reaches the same utilisation whatever the source normally sends.
+
+        A switch sourcing one small flow would otherwise shrug off a nominal 4x, leaving the
+        operator with an injected fault that produces no symptoms and an anomaly the
+        root-cause engine cannot classify.
+        """
+        node = self.network.nodes[node_id]
+        baseline = sum(f.demand_mbps for f in self.network.flows.values() if f.source == node_id)
+        nominal = TRAFFIC_MULTIPLIER[severity]
+        if baseline <= 0:
+            return nominal
+        needed = node.capacity_mbps * TRAFFIC_TARGET_UTIL[severity] / baseline
+        return min(TRAFFIC_MULTIPLIER_CAP, max(nominal, needed))
 
     def reset(self) -> int:
         cleared = self.clear_all(reason="reset")

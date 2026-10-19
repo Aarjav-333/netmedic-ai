@@ -134,3 +134,50 @@ def test_effects_never_expose_fault_labels(eng):
     # The effects structure carries physics only - no fault type, no label.
     assert not hasattr(fx.node("R4"), "fault_type")
     assert fx.node("R4").extra_load_mbps > 0
+
+
+@pytest.mark.parametrize("switch", ["SW1", "SW2", "SW3", "SW4"])
+@pytest.mark.parametrize("severity", [Severity.LOW, Severity.MEDIUM, Severity.HIGH])
+def test_traffic_spike_saturates_every_switch_equally(eng, switch, severity):
+    """Severity must mean the same thing on every switch.
+
+    A bare demand multiplier was capacity-blind: SW4 sources one 150 Mbps flow, so a
+    'high' 4x spike reached only 62 % of its 1 Gbps, left the node healthy, and produced
+    an anomaly the RCA could not classify - while SW3 (450 Mbps) hit 180 %.
+    """
+    eng.faults.inject(FaultType.TRAFFIC_SPIKE, switch, severity)
+    snap = settle(eng)
+    node = snap.node(switch)
+    floor = {Severity.LOW: 80.0, Severity.MEDIUM: 110.0, Severity.HIGH: 145.0}[severity]
+    assert node.bandwidth_utilization_percent >= floor, (
+        f"{switch} only reached {node.bandwidth_utilization_percent:.0f}% at {severity.value}"
+    )
+
+
+def test_traffic_spike_is_diagnosed_as_such_on_the_smallest_switch(eng):
+    """SW4 used to be reported as an unclassified anomaly and escalated."""
+    for _ in range(8):
+        eng.tick()
+    eng.faults.inject(FaultType.TRAFFIC_SPIKE, "SW4", Severity.HIGH)
+    for _ in range(4):
+        eng.tick()
+    assert eng.latest.node("SW4").health == HealthStatus.CRITICAL
+    assert eng.diagnosis is not None
+    assert eng.diagnosis.root_cause.value == "traffic_spike"
+    assert eng.diagnosis.target_id == "SW4"
+
+
+def test_delivered_throughput_never_exceeds_reported_demand(eng):
+    """The summary compared delivered throughput against *baseline* demand, so during a
+    spike the dashboard showed 1.74 Gbps delivered 'of 1.30 Gbps demand'."""
+    for _ in range(4):
+        eng.tick()
+    s = eng.latest.summary
+    assert s.total_throughput_mbps <= s.total_demand_mbps
+    eng.faults.inject(FaultType.TRAFFIC_SPIKE, "SW4", Severity.HIGH)
+    for _ in range(4):
+        eng.tick()
+    s = eng.latest.summary
+    assert s.total_throughput_mbps <= s.total_demand_mbps
+    # The unmet demand is what makes the spike legible.
+    assert s.total_demand_mbps > 1500

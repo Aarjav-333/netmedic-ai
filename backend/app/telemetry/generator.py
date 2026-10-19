@@ -238,7 +238,8 @@ class TelemetryGenerator:
                 flow_id=flow.id, name=flow.name, source=flow.source, destination=flow.destination,
                 path=list(route.path), links=list(route.links), status=FlowStatus.DOWN,
                 health=HealthStatus.OFFLINE, latency_ms=0.0, packet_loss_percent=100.0,
-                throughput_mbps=0.0, demand_mbps=flow.demand_mbps, is_primary_route=route.is_primary,
+                throughput_mbps=0.0, demand_mbps=flow.demand_mbps, offered_mbps=round(offered, 1),
+                is_primary_route=route.is_primary,
                 health_score=0.0,
             )
 
@@ -281,6 +282,7 @@ class TelemetryGenerator:
             packet_loss_percent=round(loss, 2),
             throughput_mbps=round(throughput, 1),
             demand_mbps=flow.demand_mbps,
+            offered_mbps=round(offered, 1),
             is_primary_route=route.is_primary,
             health_score=score,
         )
@@ -305,7 +307,10 @@ class TelemetryGenerator:
             avg_node_latency_ms=round(sum(n.latency_ms for n in up_nodes) / len(up_nodes), 1) if up_nodes else 0.0,
             avg_packet_loss_percent=round(sum(f.packet_loss_percent for f in flows) / len(flows), 2) if flows else 0.0,
             total_throughput_mbps=round(sum(f.throughput_mbps for f in flows), 1),
-            total_demand_mbps=round(sum(f.demand_mbps for f in flows), 1),
+            # Offered, not baseline: during a traffic spike the sources ask for more than
+            # their norm, and reporting the baseline made delivered throughput look like it
+            # exceeded demand.
+            total_demand_mbps=round(sum(f.offered_mbps for f in flows), 1),
             rerouted_flows=sum(1 for f in flows if not f.is_primary_route and f.status != FlowStatus.DOWN),
             broken_flows=sum(1 for f in flows if f.status == FlowStatus.DOWN),
         )

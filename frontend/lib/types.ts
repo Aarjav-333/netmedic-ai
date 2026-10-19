@@ -101,7 +101,10 @@ export interface FlowTelemetry {
   latency_ms: number;
   packet_loss_percent: number;
   throughput_mbps: number;
+  /** Baseline demand - what this flow normally asks for. */
   demand_mbps: number;
+  /** What the source is offering now, after any traffic spike or rate limit. */
+  offered_mbps: number;
   is_primary_route: boolean;
   health_score: number;
 }
