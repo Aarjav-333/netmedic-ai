@@ -128,7 +128,12 @@ export function Dashboard() {
           onSelectNode={setSelectedNode}
         />
 
-        <IncidentHistory incidents={incidents} selectedId={fallbackId} onSelect={setSelectedIncidentId} />
+        <IncidentHistory
+          incidents={incidents}
+          selectedId={selectedIncidentId}
+          activeId={fallbackId}
+          onSelect={setSelectedIncidentId}
+        />
       </main>
     </div>
   );

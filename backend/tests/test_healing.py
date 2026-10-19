@@ -278,3 +278,58 @@ def test_unclassified_anomaly_closes_as_transient_not_failed(engine):
         manager.process(engine.tick_count + t, snapshot, empty, None)
     assert manager.active is None
     assert engine.incidents.closed[0].status == IncidentStatus.CANCELLED
+
+
+def test_persisting_unclassified_anomaly_escalates_with_its_findings(engine):
+    """Escalation must hand the operator a record, not a row of em dashes - and must not
+    claim a recovery failed when none was ever attempted."""
+    from datetime import datetime, timezone
+
+    from app.incidents.manager import ESCALATED_LABEL
+    from app.models.detection import ComponentAnomaly, ComponentKind, DetectionResult
+    from app.models.diagnosis import ROOT_CAUSE_LABEL, ActionType, Diagnosis, RemediationPlan, RiskLevel, RootCause
+
+    engine.reset()
+    for _ in range(3):
+        engine.tick()
+    manager = engine.incidents
+    snapshot = engine.latest
+    now = datetime.now(timezone.utc)
+
+    detection = DetectionResult(
+        tick=engine.tick_count, timestamp=now,
+        anomalies=[ComponentAnomaly(
+            component_id="R3", component_kind=ComponentKind.NODE, method="isolation_forest",
+            decision_score=-0.05, severity=57.0, is_anomaly=True, confirmed=True, consecutive_ticks=3)],
+        node_scores={"R3": 57.0}, confirmed_ids=["R3"],
+    )
+    unknown = Diagnosis(
+        tick=engine.tick_count, timestamp=now, root_cause=RootCause.UNKNOWN,
+        root_cause_label=ROOT_CAUSE_LABEL[RootCause.UNKNOWN], target_id="R3",
+        target_kind=ComponentKind.NODE, confidence=0.17,
+        confidence_explanation="Best hypothesis scored 0.17; below the 0.35 threshold.",
+        evidence=["CPU drifted above its baseline"], affected_flows=[], affected_components=["R3"],
+        hypotheses=[], anomaly_severity=57.0,
+        plan=RemediationPlan(action=ActionType.MONITOR, target_id="R3", target_kind=ComponentKind.NODE,
+                             summary="Keep monitoring R3", rationale="signature unclear",
+                             risk=RiskLevel.LOW, expected_outcome="no change"),
+    )
+
+    # The anomaly never clears, so the incident escalates once the diagnosis window closes.
+    for t in range(10):
+        manager.process(engine.tick_count + t, snapshot, detection, unknown)
+        if manager.active is None:
+            break
+    incident = engine.incidents.closed[0]
+
+    assert incident.status == IncidentStatus.FAILED
+    assert incident.status_label == ESCALATED_LABEL, "nothing was attempted; 'RECOVERY FAILED' would be a lie"
+    # The findings survive into the record the operator inherits.
+    assert incident.root_cause == RootCause.UNKNOWN
+    assert incident.confidence == 0.17
+    assert incident.diagnosis is not None and incident.diagnosis.evidence
+    assert "below the 0.35 threshold" in incident.diagnosis.confidence_explanation
+    assert incident.diagnosed_at is not None
+    assert incident.metrics.time_to_diagnose_s is not None
+    # No remediation was ever executed.
+    assert not [a for a in incident.actions if a.result == "applied"]

@@ -28,7 +28,7 @@ Target length: 3–4 minutes. Everything below is driven by the real pipeline; n
 
 **1:15 — Persistence.** Incident history row with recovery/total times; click it to reopen the record after a **Reset**.
 
-**1:30 — Variety (optional).** Run demo → *Link failure R4-SW3* (isolate + backup uplink) or *Node overload on R2* (restart with traffic moved off, then primary routes restored). Show *Router congestion on R1* by hand to demonstrate honest escalation: no alternative path → ESCALATE → FAILED. (A low-confidence blip the engine cannot classify is *not* failed — it stays in observation and closes as CANCELLED, so a stray FAILED row always means something real.)
+**1:30 — Variety (optional).** Run demo → *Link failure R4-SW3* (isolate + backup uplink) or *Node overload on R2* (restart with traffic moved off, then primary routes restored). Show *Router congestion on R1* by hand to demonstrate honest escalation: no alternative path → ESCALATE → FAILED. (A low-confidence blip the engine cannot classify is *not* reported as a failed recovery: if it clears it closes as CANCELLED, and if it persists it closes as **ESCALATED TO OPERATOR** carrying its evidence and the reason the score fell short. "RECOVERY FAILED" only ever appears when a remediation was actually attempted and did not work.)
 
 **2:30 — Manual mode (optional).** Toggle **Auto-healing** off, inject again, and approve the recommendation with **Execute** in the healing panel.
 

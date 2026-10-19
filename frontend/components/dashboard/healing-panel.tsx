@@ -29,7 +29,7 @@ const EXECUTION_LABEL: Partial<Record<IncidentStatus, string>> = {
   verifying: "Applied — verifying",
   resolved: "Applied — verified",
   partially_resolved: "Applied — partial recovery",
-  failed: "Not applied / failed",
+  failed: "Not applied / failed",  // overridden below when nothing was attempted
   cancelled: "Cancelled",
 };
 
@@ -88,6 +88,9 @@ export function HealingPanel({ incident, autoHeal }: { incident: Incident | null
   const action = incident?.actions.find((a) => a.result === "applied" || a.result === "skipped" || a.result === "failed") ?? null;
   const recovery = incident?.recovery ?? null;
   const awaitingApproval = incident?.status === "diagnosed" && !incident.auto_heal;
+  // ESCALATE/MONITOR mean the engine declined to act - saying a recovery "failed" would
+  // imply something was tried. The backend labels the incident the same way.
+  const notAttempted = plan?.action === "escalate" || plan?.action === "monitor";
 
   const approve = async () => {
     if (!incident) return;
@@ -132,7 +135,9 @@ export function HealingPanel({ incident, autoHeal }: { incident: Incident | null
                   ) : action ? (
                     <XCircle className="size-3.5" aria-hidden />
                   ) : null}
-                  {EXECUTION_LABEL[incident.status]}
+                  {incident.status === "failed" && notAttempted
+                    ? "Escalated to operator"
+                    : EXECUTION_LABEL[incident.status]}
                 </p>
                 {action && <p className="text-[11px] text-muted-foreground">{action.details}</p>}
               </div>

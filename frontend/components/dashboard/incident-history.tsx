@@ -24,10 +24,14 @@ function pill(status: IncidentStatus): { health: HealthStatus; label: string } {
 export function IncidentHistory({
   incidents,
   selectedId,
+  activeId,
   onSelect,
 }: {
   incidents: IncidentSummary[];
+  /** Explicitly chosen by the operator - drives the toggle state. */
   selectedId: string | null;
+  /** Whatever the panels are currently showing, selected or defaulted to. */
+  activeId: string | null;
   onSelect: (id: string | null) => void;
 }) {
   return (
@@ -60,11 +64,14 @@ export function IncidentHistory({
               <tbody>
                 {incidents.map((i) => {
                   const p = pill(i.status);
+                  // `selected` is an explicit choice; `active` is merely what is on screen.
+                  // Conflating them made the toggle on the auto-shown row impossible to release.
                   const selected = i.id === selectedId;
+                  const active = i.id === activeId;
                   return (
                     <tr
                       key={i.id}
-                      className={`border-b border-border/40 transition-colors hover:bg-muted/40 has-focus-visible:bg-muted/50 ${selected ? "bg-muted/50" : ""}`}
+                      className={`cursor-pointer border-b border-border/40 transition-colors hover:bg-muted/40 has-focus-visible:bg-muted/50 ${active ? "bg-muted/50" : ""}`}
                       onClick={() => onSelect(selected ? null : i.id)}
                     >
                       {/* The row stays clickable for the mouse, but selection lives on a real

@@ -36,6 +36,8 @@ DIAGNOSIS_TIMEOUT_TICKS = 4
 MIN_OPEN_SEVERITY = 20.0
 MILD_ANOMALY_TICKS = 4
 MAX_HISTORY = 100
+# FAILED covers two different outcomes; only one of them is a failed *recovery*.
+ESCALATED_LABEL = "ESCALATED TO OPERATOR"
 
 IncidentHook = Callable[[Incident], None]
 
@@ -202,7 +204,17 @@ class IncidentManager:
             elif tick - self._stage_tick >= DIAGNOSIS_TIMEOUT_TICKS:
                 still_flagged = any(a.component_id == incident.component_id for a in detection.anomalies)
                 if still_flagged:
-                    self._transition(incident, IncidentStatus.FAILED, tick, "Anomaly persists but matches no known root-cause signature; escalated to operator")
+                    # Keep whatever the engine did work out (evidence, ranked hypotheses, the
+                    # reason the score fell short) so the operator inherits a record, not blanks.
+                    if diagnosis is not None and incident.diagnosis is None:
+                        self._record_diagnosis(incident, diagnosis)
+                    self._transition(
+                        incident,
+                        IncidentStatus.FAILED,
+                        tick,
+                        "Anomaly persists but matches no known root-cause signature; escalated to operator",
+                        label=ESCALATED_LABEL,
+                    )
                 else:
                     self._transition(incident, IncidentStatus.CANCELLED, tick, "Transient anomaly cleared on its own before a root cause could be established")
                 self._finish(incident)
@@ -221,7 +233,13 @@ class IncidentManager:
             if elapsed >= SETTLE_TICKS + WINDOW_TICKS:
                 self._verify(incident, tick)
 
-    def _apply_diagnosis(self, incident: Incident, diagnosis: Diagnosis, tick: int) -> None:
+    def _record_diagnosis(self, incident: Incident, diagnosis: Diagnosis) -> None:
+        """Attach what the engine worked out, without claiming it is actionable.
+
+        Used both for a confident diagnosis and for an unclassified one that is about to be
+        escalated - in the latter case the operator still needs the evidence, the ranked
+        hypotheses and the reason the score fell short, rather than a row of em dashes.
+        """
         incident.diagnosis = diagnosis
         incident.plan = diagnosis.plan
         incident.root_cause = diagnosis.root_cause
@@ -232,6 +250,11 @@ class IncidentManager:
             incident.component_kind = diagnosis.target_kind
         incident.diagnosed_at = datetime.now(timezone.utc)
         incident.metrics.time_to_diagnose_s = round((incident.diagnosed_at - incident.detected_at).total_seconds(), 2)
+        if self.on_diagnosed:
+            self.on_diagnosed(incident)
+
+    def _apply_diagnosis(self, incident: Incident, diagnosis: Diagnosis, tick: int) -> None:
+        self._record_diagnosis(incident, diagnosis)
         self._transition(
             incident,
             IncidentStatus.DIAGNOSED,
@@ -246,8 +269,6 @@ class IncidentManager:
                 message=f"Remediation selected: {diagnosis.plan.summary}" + ("" if incident.auto_heal else " - awaiting operator approval"),
             )
         )
-        if self.on_diagnosed:
-            self.on_diagnosed(incident)
 
     def _remediate(self, incident: Incident, snapshot: TelemetrySnapshot, tick: int) -> None:
         assert incident.plan is not None
@@ -263,12 +284,15 @@ class IncidentManager:
         )
         self._remediated_tick = tick
         if record.result != "applied":
+            not_attempted = incident.plan.action in (ActionType.ESCALATE, ActionType.MONITOR)
             message = (
                 "No automatic remediation available - escalated to operator"
-                if incident.plan.action in (ActionType.ESCALATE, ActionType.MONITOR)
+                if not_attempted
                 else f"Remediation failed: {record.details}"
             )
-            self._transition(incident, IncidentStatus.FAILED, tick, message)
+            self._transition(
+                incident, IncidentStatus.FAILED, tick, message, label=ESCALATED_LABEL if not_attempted else None
+            )
             self._finish(incident)
             return
         for change in record.route_changes:
@@ -299,9 +323,11 @@ class IncidentManager:
         self._finish(incident)
 
     # ------------------------------------------------------------ helpers
-    def _transition(self, incident: Incident, status: IncidentStatus, tick: int, message: str) -> None:
+    def _transition(
+        self, incident: Incident, status: IncidentStatus, tick: int, message: str, label: str | None = None
+    ) -> None:
         incident.status = status
-        incident.status_label = STATUS_LABEL[status]
+        incident.status_label = label or STATUS_LABEL[status]
         incident.timeline.append(IncidentEvent(timestamp=datetime.now(timezone.utc), tick=tick, stage=status, message=message))
         self._stage_tick = tick
         log.info("[INCIDENT] %s -> %s: %s", incident.id, STATUS_LABEL[status], message)
