@@ -333,3 +333,77 @@ def test_persisting_unclassified_anomaly_escalates_with_its_findings(engine):
     assert incident.metrics.time_to_diagnose_s is not None
     # No remediation was ever executed.
     assert not [a for a in incident.actions if a.result == "applied"]
+
+
+def test_incidents_interrupted_by_restart_are_closed_on_load(tmp_path):
+    """A record left mid-flight by a dead process must not claim to still be in progress."""
+    from app.engine import SimulationEngine
+    from app.incidents.manager import INTERRUPTED_LABEL
+    from app.models.faults import FaultType
+    from app.models.incident import OPEN_STATUSES
+
+    db_url = f"sqlite:///{(tmp_path / 'restart.db').as_posix()}"
+    engine = SimulationEngine(database_url=db_url)
+    for _ in range(8):
+        engine.tick()
+    engine.faults.inject(FaultType.ROUTER_CONGESTION, "R4")
+    for _ in range(3):
+        engine.tick()
+    assert engine.incidents.active is not None
+    open_id = engine.incidents.active.id
+    assert engine.incidents.active.status in OPEN_STATUSES  # process "dies" here
+
+    revived = SimulationEngine(database_url=db_url)
+    restored = next(i for i in revived.incidents.closed if i.id == open_id)
+    assert restored.status not in OPEN_STATUSES
+    assert restored.status_label == INTERRUPTED_LABEL
+    assert restored.resolved_at is not None
+    assert "restarted while this incident was open" in restored.timeline[-1].message
+    # And the correction is persisted, not re-derived on every boot.
+    assert next(i for i in SimulationEngine(database_url=db_url).incidents.closed
+                if i.id == open_id).status not in OPEN_STATUSES
+
+
+def test_unactionable_incident_does_not_immediately_reopen(engine):
+    """Five identical red rows in a minute is noise, not signal."""
+    from datetime import datetime, timezone
+
+    from app.incidents.manager import REOPEN_COOLDOWN_TICKS
+    from app.models.detection import ComponentAnomaly, ComponentKind, DetectionResult
+
+    engine.reset()
+    for _ in range(3):
+        engine.tick()
+    manager = engine.incidents
+    snapshot = engine.latest
+
+    def detection(tick: int) -> DetectionResult:
+        return DetectionResult(
+            tick=tick, timestamp=datetime.now(timezone.utc),
+            anomalies=[ComponentAnomaly(
+                component_id="SW4", component_kind=ComponentKind.NODE, method="isolation_forest",
+                decision_score=-0.05, severity=57.0, is_anomaly=True, confirmed=True, consecutive_ticks=3)],
+            node_scores={"SW4": 57.0}, confirmed_ids=["SW4"],
+        )
+
+    # Escalates with no action applied (no diagnosis is ever produced).
+    t = engine.tick_count
+    closed_at = None
+    for step in range(20):
+        manager.process(t + step, snapshot, detection(t + step), None)
+        if manager.active is None and manager.closed:
+            closed_at = t + step
+            break
+    assert closed_at is not None, "incident never closed"
+    closed_after_first = len(manager.closed)
+
+    # The same anomaly keeps firing, but the component stays in cooldown until it expires.
+    for tick in range(closed_at + 1, closed_at + REOPEN_COOLDOWN_TICKS):
+        manager.process(tick, snapshot, detection(tick), None)
+        assert manager.active is None, f"re-opened at tick {tick}, inside the cooldown window"
+    assert len(manager.closed) == closed_after_first
+
+    # ...and is allowed to re-open once it does.
+    for tick in range(closed_at + REOPEN_COOLDOWN_TICKS, closed_at + REOPEN_COOLDOWN_TICKS + 3):
+        manager.process(tick, snapshot, detection(tick), None)
+    assert manager.active is not None, "cooldown never expired"

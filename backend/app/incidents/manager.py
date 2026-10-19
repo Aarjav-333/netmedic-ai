@@ -18,6 +18,7 @@ from app.logging_config import get_logger
 from app.models.detection import ComponentKind, DetectionResult
 from app.models.diagnosis import ActionType, Diagnosis, RootCause
 from app.models.incident import (
+    OPEN_STATUSES,
     STATUS_LABEL,
     HealingActionRecord,
     Incident,
@@ -38,6 +39,11 @@ MILD_ANOMALY_TICKS = 4
 MAX_HISTORY = 100
 # FAILED covers two different outcomes; only one of them is a failed *recovery*.
 ESCALATED_LABEL = "ESCALATED TO OPERATOR"
+INTERRUPTED_LABEL = "INTERRUPTED BY RESTART"
+# After an incident closes without any remediation being applied, give the component a
+# breather. Without it an anomaly the engine cannot classify re-opens every few ticks and
+# fills the history with identical red rows.
+REOPEN_COOLDOWN_TICKS = 20
 
 IncidentHook = Callable[[Incident], None]
 
@@ -55,6 +61,7 @@ class IncidentManager:
         self._baseline: MetricWindow | None = None
         self._remediated_tick: int | None = None
         self._manual_go = False
+        self._cooldown_until: dict[str, int] = {}
         self.on_change: IncidentHook | None = None
         self.on_diagnosed: IncidentHook | None = None
 
@@ -103,8 +110,35 @@ class IncidentManager:
         self._close(incident)
         return incident
 
+    def reconcile_restored(self) -> list[Incident]:
+        """Close out incidents that were still in flight when the process last stopped.
+
+        Restored records keep whatever state they died in, so without this the history
+        shows a row stuck 'in progress' forever - a claim the engine cannot back up.
+        """
+        interrupted: list[Incident] = []
+        for incident in self.closed:
+            if incident.status not in OPEN_STATUSES:
+                continue
+            incident.status = IncidentStatus.CANCELLED
+            incident.status_label = INTERRUPTED_LABEL
+            incident.resolved_at = incident.resolved_at or datetime.now(timezone.utc)
+            incident.timeline.append(
+                IncidentEvent(
+                    timestamp=datetime.now(timezone.utc),
+                    tick=incident.timeline[-1].tick if incident.timeline else 0,
+                    stage=IncidentStatus.CANCELLED,
+                    message="Backend restarted while this incident was open; no outcome was recorded",
+                )
+            )
+            interrupted.append(incident)
+        if interrupted:
+            log.info("[INCIDENT] Closed %d incident(s) interrupted by a restart", len(interrupted))
+        return interrupted
+
     def reset(self) -> None:
         self._first_abnormal.clear()
+        self._cooldown_until.clear()
         self._before = None
         self._baseline = None
         self._remediated_tick = None
@@ -136,6 +170,7 @@ class IncidentManager:
             and a.component_kind in (ComponentKind.NODE, ComponentKind.LINK)
             and not self.healing.is_quarantined(a.component_id)
             and (a.severity >= MIN_OPEN_SEVERITY or a.consecutive_ticks >= MILD_ANOMALY_TICKS)
+            and tick >= self._cooldown_until.get(a.component_id, 0)
         ]
         if not candidates:
             return
@@ -335,6 +370,10 @@ class IncidentManager:
             self.on_change(incident)
 
     def _finish(self, incident: Incident) -> None:
+        # Nothing was applied, so the condition is still out there; re-opening immediately
+        # would just produce the same unactionable incident again.
+        if not any(a.result == "applied" for a in incident.actions):
+            self._cooldown_until[incident.component_id] = self._stage_tick + REOPEN_COOLDOWN_TICKS
         incident.resolved_at = datetime.now(timezone.utc)
         incident.metrics.total_duration_s = round((incident.resolved_at - incident.first_abnormal_at).total_seconds(), 2)
         self._close(incident)

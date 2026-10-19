@@ -70,6 +70,8 @@ class SimulationEngine:
             self.incidents.closed = self.db.load_incidents()
             if self.incidents.closed:
                 log.info("[DB] Loaded %d historical incident(s)", len(self.incidents.closed))
+            for interrupted in self.incidents.reconcile_restored():
+                self._persist_incident(interrupted)
         self._ai_tasks: set[asyncio.Task[None]] = set()
         self.latest: TelemetrySnapshot | None = None
         self.tick_count = 0
